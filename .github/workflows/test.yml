@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches: ["**"]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    # Release commits are verified by release:check before they are pushed.
+    # A skipped job satisfies required status checks, unlike a skipped workflow.
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup mise
+        uses: jdx/mise-action@v5
+        with:
+          version: 2026.10.25
+
+      # Tests run fixture projects with Node.js and npm.
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Build package
+        run: bun run build
+
+      - name: Typecheck package
+        run: bun run types
+
+      - name: Test package
+        run: bun run test

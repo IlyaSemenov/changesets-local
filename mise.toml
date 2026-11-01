@@ -1,0 +1,8 @@
+[settings]
+lockfile = true
+
+[tools]
+bun = "1.4.4"
+lefthook = "latest"
+# Tests run fixture projects with pnpm.
+pnpm = "12.16.1"

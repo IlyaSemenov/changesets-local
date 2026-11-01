@@ -1,0 +1,60 @@
+{
+  "name": "changesets-local",
+  "version": "0.0.0",
+  "description": "Release Changesets packages from your terminal: version, publish to npm, tag, and create GitHub Releases with one command",
+  "keywords": [
+    "changelog",
+    "changesets",
+    "cli",
+    "monorepo",
+    "npm",
+    "publish",
+    "release",
+    "semver"
+  ],
+  "homepage": "https://github.com/IlyaSemenov/changesets-local#readme",
+  "bugs": "https://github.com/IlyaSemenov/changesets-local/issues",
+  "license": "MIT",
+  "author": "Ilya Semenov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IlyaSemenov/changesets-local.git"
+  },
+  "bin": {
+    "changesets-local": "./dist/cli.mjs"
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "oxlint --fix && oxfmt",
+    "lint:check": "oxlint && oxfmt --check",
+    "prepare": "lefthook install",
+    "prepublishOnly": "bun run build",
+    "release": "bun run build && node dist/cli.mjs",
+    "release:check": "bun run lint:check && bun run types && bun run test && bun run build",
+    "test": "bun test --timeout 60000 --concurrent",
+    "types": "bun check && bun check -p tests"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@ilyasemenov/oxc-config": "^0.1.1",
+    "@tsconfig/bun": "^1.0.11",
+    "@types/bun": "^1.4.4",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
+    "publint": "^0.3.25",
+    "tsdown": "^0.23.4",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": "^22.11 || ^24 || >=26"
+  },
+  "packageManager": "bun@1.4.4"
+}
