@@ -212,6 +212,14 @@ describe("CI checks", () => {
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
   })
 
+  it("asks about failed checks only when there is something to release", async () => {
+    const fixture = createFixture({ changesets: {} })
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
+    const result = await fixture.run()
+    expect(result.error?.message).toContain("No pending changesets release any package.")
+    expect(result.questions).toEqual([])
+  })
+
   it("asks before versioning when a check has failed", async () => {
     const fixture = createFixture()
     const short = setChecks(fixture, {

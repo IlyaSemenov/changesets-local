@@ -241,9 +241,9 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
     await previewRelease(ctx, workspace)
     return
   }
+  const plan = await planPendingRelease(ctx, ctx.cwd)
   // Asks about already failed checks before versioning; the others are awaited after release:check.
   const pendingChecks = await confirmFailedChecks(ctx, workspace.repo, head)
-  const plan = await planPendingRelease(ctx, ctx.cwd)
 
   const { commit, subject, releases } = await createReleaseCommit(ctx, workspace, plan, {
     pendingChecks,
