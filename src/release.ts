@@ -42,7 +42,13 @@ import {
   type GitHubReleaseState,
   resolveGitHubRepo,
 } from "./github"
-import { assertNpmjsRegistry, getNpmUser, isNpmjsRegistry, isVersionPublished } from "./npm"
+import {
+  assertCanPublish,
+  assertNpmjsRegistry,
+  getNpmUser,
+  isNpmjsRegistry,
+  isVersionPublished,
+} from "./npm"
 import {
   formatReleaseSubject,
   getReleaseTag,
@@ -404,7 +410,7 @@ async function versionPackages(
 /**
  * Fails unless `changeset publish` in a work tree would publish and tag exactly the given packages, in a way that matches the release.
  *
- * Public packages are expected as publications and tagged private packages as tags only.
+ * Public packages are expected as publications and tagged private packages as tags only, and the npm user must be able to publish the public ones.
  * Returns the publish plan, which includes the npm dist-tags.
  */
 async function assertPublishable(
@@ -454,6 +460,9 @@ async function assertPublishable(
     }
   }
   await assertPackageRegistries(ctx, project, publicPackages)
+  await Promise.all(
+    publicPackages.map(entry => assertCanPublish(ctx, workspace.npmUser, entry.name)),
+  )
 
   const publishPlan = await readPublishPlan(ctx, cwd)
   const actual = new Set(publishPlan.map(entry => `${entry.kind} ${entry.name}@${entry.version}`))

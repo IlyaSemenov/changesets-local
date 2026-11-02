@@ -55,6 +55,16 @@ describe("release", () => {
     expect(fixture.state().gh.releases[0]!.prerelease).toBe(true)
   })
 
+  it("publishes a new package of an npm scope that the user belongs to", async () => {
+    const name = "@new/package"
+    const fixture = createFixture({
+      packageJson: { name },
+      changesets: { fix: changeset("patch", "Fix a bug.", [name]) },
+    })
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(fixture.state().npm.versions[name]).toEqual(["1.0.1"])
+  })
+
   it("leaves no trace when the confirmation is declined", async () => {
     const fixture = createFixture()
     const head = fixture.git("rev-parse", "HEAD")

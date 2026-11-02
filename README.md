@@ -28,6 +28,7 @@ It checks Git, npm, and GitHub before publishing and can finish an interrupted r
 - Node.js ^22.11, ^24, or >=26.
 - [GitHub CLI](https://cli.github.com) logged in to an account that can create releases in the repository.
 - npm logged in to an account that can publish the packages.
+  For a new package in an organization scope, create the npm organization first.
 
 ## Log in to npm and GitHub
 

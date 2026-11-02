@@ -32,6 +32,10 @@ export interface FakeState {
     }>
     /** Makes publications of packages fail before the upload or after the version is stored, by package name. */
     publishFailures: Record<string, "before-upload" | "after-upload">
+    /** Users who can publish a package, by package name; a published package without an entry has the logged-in user. */
+    maintainers: Record<string, string[]>
+    /** Members of an npm scope such as `@fixture`, or null for a scope that does not exist; a scope without an entry has the logged-in user. */
+    scopes: Record<string, string[] | null>
   }
   gh: {
     /** Whether `gh` is logged in. */
@@ -59,6 +63,8 @@ export function createFakeState(): FakeState {
       hidden: [],
       publishes: [],
       publishFailures: {},
+      maintainers: {},
+      scopes: {},
     },
     gh: { authenticated: true, repo: "owner/fixture", releases: [], createFailure: false },
   }
@@ -146,6 +152,20 @@ if (import.meta.main) {
           `Not Found - ${spec}`,
         )
       }
+    } else if (tool === "npm" && command === "access" && args[1] === "list") {
+      const [, , , name = "", user = ""] = args
+      if (!state.npm.versions[name]?.length) {
+        registryError("E404", `Not Found - GET ${name}/collaborators - Package not found`)
+      }
+      const maintainers = state.npm.maintainers[name] ?? [state.npm.user!]
+      console.log(JSON.stringify(maintainers.includes(user) ? { [user]: "read-write" } : {}))
+    } else if (tool === "npm" && command === "org" && args[1] === "ls") {
+      const [, , org = "", user = ""] = args
+      const scope = `@${org}`
+      const members =
+        (scope in state.npm.scopes ? state.npm.scopes[scope] : [state.npm.user!]) ??
+        registryError("E404", `Not Found - GET -/org/${org}/user - Scope not found`)
+      console.log(JSON.stringify(members.includes(user) ? { [user]: "developer" } : {}))
     } else if (command === "publish") {
       const { name, version } = JSON.parse(readFileSync("package.json", "utf8")) as {
         name: string

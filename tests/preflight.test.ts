@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createFixture, type Fixture, type FixtureOptions, packageName } from "./fixture"
+import { changeset, createFixture, type Fixture, type FixtureOptions, packageName } from "./fixture"
 
 /** Runs a release that must fail before changing anything, and returns its error message. */
 async function runRejected(fixture: Fixture) {
@@ -84,12 +84,51 @@ describe("repository state", () => {
 })
 
 describe("tools and authentication", () => {
+  /** Name of a package that is not on npm yet. */
+  const scopedName = "@new/package"
+
+  function createScopedFixture() {
+    return createFixture({
+      packageJson: { name: scopedName },
+      changesets: { fix: changeset("patch", "Fix a bug.", [scopedName]) },
+    })
+  }
+
   it("fails when npm is not logged in", async () => {
     const fixture = createFixture()
     fixture.updateState(state => {
       state.npm.user = null
     })
     expect(await runRejected(fixture)).toContain("npm is not logged in. Run `npm login`")
+  })
+
+  it("fails when the npm user cannot publish the package", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.npm.versions[packageName] = ["1.0.0"]
+      state.npm.maintainers[packageName] = ["owner"]
+    })
+    expect(await runRejected(fixture)).toContain(`npm user tester cannot publish ${packageName}.`)
+  })
+
+  it("fails when the scope of a new package does not exist", async () => {
+    const fixture = createScopedFixture()
+    fixture.updateState(state => {
+      state.npm.scopes["@new"] = null
+    })
+    expect(await runRejected(fixture)).toContain(
+      `The npm scope @new of ${scopedName} does not exist.`,
+    )
+  })
+
+  it("fails when the npm user is not a member of the scope of a new package", async () => {
+    const fixture = createScopedFixture()
+    fixture.updateState(state => {
+      state.npm.scopes["@new"] = ["owner"]
+    })
+    expect(await runRejected(fixture)).toContain(
+      `npm user tester is not a member of the @new organization and cannot publish ${scopedName}.`,
+    )
   })
 
   it("fails when gh is not logged in", async () => {
