@@ -215,7 +215,9 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
     }
   }
 
-  const syncProblem = await describeSyncProblem(ctx, workspace)
+  // On another branch, which only a dry run allows, the branch warning already applies, and advice to sync with the base branch would mislead.
+  const syncProblem =
+    workspace.branch === workspace.project.baseBranch && (await describeSyncProblem(ctx, workspace))
   if (syncProblem) {
     reportProblem(ctx, options, syncProblem)
   }

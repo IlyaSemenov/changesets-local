@@ -199,14 +199,22 @@ describe("dry run", () => {
     expect(result.output).toContain(
       "⚠ Releases are made from main (baseBranch in .changeset/config.json), but feature is checked out.",
     )
-    expect(result.output).toContain(
-      "⚠ feature has commits that are not pushed to origin/main. Push them first.",
-    )
+    expect(result.output).not.toContain("not pushed")
     // The uncommitted changeset is not part of the preview.
     expect(result.output).toContain(`${packageName} 1.0.0 → 1.0.1 (patch)`)
     expect(result.output).toContain("Push it to origin/main")
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe(
       "?? .changeset/feature.md",
+    )
+  })
+
+  it("warns about unpushed commits of the base branch in a dry run", async () => {
+    const fixture = createFixture()
+    fixture.git("commit", "--quiet", "--allow-empty", "--message", "Local change")
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "⚠ main has commits that are not pushed to origin/main. Push them first.",
     )
   })
 
