@@ -30,6 +30,16 @@ It checks Git, npm, and GitHub before publishing and can finish an interrupted r
 - npm logged in to an account that can publish the packages.
   For a new package in an organization scope, create the npm organization first.
 
+## Install
+
+Add changesets-local to the dev dependencies at the repository root to pin its version for everyone who releases:
+
+```sh
+npm install --save-dev changesets-local
+```
+
+`npx changesets-local` runs the installed version; without it, npx downloads the latest version.
+
 ## Log in to npm and GitHub
 
 Log in once; changesets-local checks both logins before changing anything.
