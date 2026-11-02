@@ -51,6 +51,14 @@ describe("pending changes", () => {
 })
 
 describe("repository state", () => {
+  /** Pushes a commit to the remote from another clone. */
+  function pushRemoteChange(fixture: Fixture) {
+    const clone = join(mkdtempSync(join(tmpdir(), "changesets-local-test-")), "clone")
+    fixture.git("clone", "--quiet", fixture.remote, clone)
+    fixture.git("-C", clone, "commit", "--quiet", "--allow-empty", "--message", "Remote change")
+    fixture.git("-C", clone, "push", "--quiet")
+  }
+
   it("fails with uncommitted changes", async () => {
     const fixture = createFixture()
     fixture.write("README.md", "Draft")
@@ -61,19 +69,38 @@ describe("repository state", () => {
 
   it("fails when the branch is behind the remote", async () => {
     const fixture = createFixture()
-    const clone = join(mkdtempSync(join(tmpdir(), "changesets-local-test-")), "clone")
-    fixture.git("clone", "--quiet", fixture.remote, clone)
-    fixture.git("-C", clone, "commit", "--quiet", "--allow-empty", "--message", "Remote change")
-    fixture.git("-C", clone, "push", "--quiet")
+    pushRemoteChange(fixture)
     expect(await runRejected(fixture)).toContain(
-      "main is not up to date with refs/remotes/origin/main.",
+      "main is behind origin/main. Pull the remote changes first.",
     )
   })
 
   it("fails when the branch has unpushed commits", async () => {
     const fixture = createFixture()
     fixture.git("commit", "--quiet", "--allow-empty", "--message", "Local change")
-    expect(await runRejected(fixture)).toContain("main has commits that are not pushed")
+    expect(await runRejected(fixture)).toContain(
+      "main has commits that are not pushed to origin/main. Push them first.",
+    )
+  })
+
+  it("fails when the branch has diverged from the remote", async () => {
+    const fixture = createFixture()
+    pushRemoteChange(fixture)
+    fixture.git("commit", "--quiet", "--allow-empty", "--message", "Local change")
+    expect(await runRejected(fixture)).toContain(
+      "main and origin/main have diverged. Reconcile them first.",
+    )
+  })
+
+  it("fails when the remote branch no longer exists", async () => {
+    const fixture = createFixture()
+    fixture.git("push", "--quiet", "origin", "main:release")
+    fixture.git("branch", "--quiet", "--set-upstream-to", "origin/release")
+    fixture.remoteGit("branch", "--quiet", "--delete", "release")
+    fixture.git("config", "fetch.prune", "true")
+    expect(await runRejected(fixture)).toContain(
+      "origin/release does not exist. Push to it with `git push origin HEAD:refs/heads/release`.",
+    )
   })
 
   it("fails on a branch other than baseBranch", async () => {

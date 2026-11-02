@@ -9,6 +9,8 @@ export interface Upstream {
   mergeRef: string
   /** Local remote-tracking ref, such as `refs/remotes/origin/main`. */
   trackingRef: string
+  /** Short name of the remote-tracking branch for messages, such as `origin/main`. */
+  name: string
 }
 
 /** Returns the root of the Git work tree containing the project, or null outside a repository. */
@@ -60,7 +62,7 @@ export async function getUpstream(ctx: Context, branch: string): Promise<Upstrea
     "--symbolic-full-name",
     `${branch}@{upstream}`,
   ])
-  return { remote, mergeRef, trackingRef }
+  return { remote, mergeRef, trackingRef, name: trackingRef.replace(/^refs\/remotes\//, "") }
 }
 
 /** Returns the URL of a remote. */

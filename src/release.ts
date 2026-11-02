@@ -186,8 +186,6 @@ async function prepareWorkspace(ctx: Context): Promise<Workspace> {
 }
 
 async function startRelease(ctx: Context, workspace: Workspace, options: ReleaseOptions) {
-  const { upstream } = workspace
-
   const found = await findRelease(ctx)
   if (found) {
     const previous = await inspectRelease(ctx, workspace, found)
@@ -196,15 +194,9 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
     }
   }
 
-  const head = await resolveCommit(ctx, "HEAD")
-  const remoteHead = await resolveCommit(ctx, upstream.trackingRef)
-  if (head !== remoteHead) {
-    const pushed = remoteHead !== null && head !== null && (await isAncestor(ctx, remoteHead, head))
-    throw new ReleaseError(
-      pushed
-        ? `${workspace.branch} has commits that are not pushed to ${upstream.trackingRef}. Push them before starting the release.`
-        : `${workspace.branch} is not up to date with ${upstream.trackingRef}. Pull the remote changes first.`,
-    )
+  const syncProblem = await describeSyncProblem(ctx, workspace)
+  if (syncProblem) {
+    throw new ReleaseError(syncProblem)
   }
 
   const plan = await planRelease(ctx)
@@ -236,6 +228,26 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
     },
     { resumed: false },
   )
+}
+
+/** Describes how the branch differs from its remote branch, or returns null when they are at the same commit. */
+async function describeSyncProblem(ctx: Context, workspace: Workspace) {
+  const { branch, upstream } = workspace
+  const head = (await resolveCommit(ctx, "HEAD"))!
+  const remoteHead = await resolveCommit(ctx, upstream.trackingRef)
+  if (head === remoteHead) {
+    return null
+  }
+  if (!remoteHead) {
+    return `${upstream.name} does not exist. Push to it with \`git push ${upstream.remote} HEAD:${upstream.mergeRef}\`.`
+  }
+  if (await isAncestor(ctx, head, remoteHead)) {
+    return `${branch} is behind ${upstream.name}. Pull the remote changes first.`
+  }
+  if (await isAncestor(ctx, remoteHead, head)) {
+    return `${branch} has commits that are not pushed to ${upstream.name}. Push them first.`
+  }
+  return `${branch} and ${upstream.name} have diverged. Reconcile them first.`
 }
 
 /**
@@ -874,7 +886,7 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
   ctx.log(
     formatList([
       `Commit "${summary.subject}"`,
-      `Push it to ${upstream.trackingRef.replace(/^refs\/remotes\//, "")}`,
+      `Push it to ${upstream.name}`,
       ...(publications.length > 0
         ? [
             `Publish to npm as ${npmUser}: ${publications.map(entry => `${entry.name}@${entry.version} (${entry.tag})`).join(", ")}`,
