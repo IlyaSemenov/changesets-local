@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import { formatReleaseSubject, parseReleaseSubject } from "./packages"
+import { formatReleaseSubject, parseReleaseSubject, sortByName } from "./packages"
 
 describe("parseReleaseSubject", () => {
   it("parses the subject of a release", () => {
@@ -27,5 +27,17 @@ describe("parseReleaseSubject", () => {
     "Releases a@1.0.0",
   ])("rejects %p", subject => {
     expect(parseReleaseSubject(subject)).toBeNull()
+  })
+})
+
+describe("sortByName", () => {
+  it("sorts scoped packages by their name without the @", () => {
+    const names = ["zeta", "@kern-orm/postgres-js", "kern-orm", "@acme/core"]
+    expect(sortByName(names.map(name => ({ name }))).map(entry => entry.name)).toEqual([
+      "@acme/core",
+      "kern-orm",
+      "@kern-orm/postgres-js",
+      "zeta",
+    ])
   })
 })

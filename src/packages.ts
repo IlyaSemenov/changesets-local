@@ -106,9 +106,21 @@ export function parseReleaseSubject(
   return versions
 }
 
-/** Sorts packages by name in code point order, the order of release commit subjects. */
+/**
+ * Sorts packages by name, the order of release commit subjects.
+ *
+ * Names are compared in code point order without the `@` of a scope, so that a scoped package such as `@kern-orm/postgres-js` follows `kern-orm`.
+ */
 export function sortByName<T extends { name: string }>(items: T[]) {
-  return items.toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  return items.toSorted(
+    (a, b) =>
+      compareCodePoints(a.name.replace(/^@/, ""), b.name.replace(/^@/, "")) ||
+      compareCodePoints(a.name, b.name),
+  )
+}
+
+function compareCodePoints(a: string, b: string) {
+  return a < b ? -1 : a > b ? 1 : 0
 }
 
 /** Parses a `package.json`, or returns null when it is not a package manifest with a name and a version. */

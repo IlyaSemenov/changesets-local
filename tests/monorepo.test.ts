@@ -9,7 +9,7 @@ import {
   privatePackage,
 } from "./fixture"
 
-const subject = "Release @fixture/beta@1.0.1, alpha@1.1.0"
+const subject = "Release alpha@1.1.0, @fixture/beta@1.0.1"
 
 /** Asserts that the default monorepo release is complete. */
 function expectMonorepoReleased(fixture: Fixture) {
@@ -31,9 +31,9 @@ describe("monorepo release", () => {
       const fixture = createFixture({ monorepo: true, packageManager })
       const result = await fixture.run()
       expect(result.error).toBeUndefined()
-      expect(result.questions).toEqual(["Release @fixture/beta@1.0.1, alpha@1.1.0?"])
+      expect(result.questions).toEqual(["Release alpha@1.1.0, @fixture/beta@1.0.1?"])
       expect(result.output).toContain(
-        "Publish to npm as tester: @fixture/beta@1.0.1 (latest), alpha@1.1.0 (latest)",
+        "Publish to npm as tester: alpha@1.1.0 (latest), @fixture/beta@1.0.1 (latest)",
       )
       expectMonorepoReleased(fixture)
       expect(
@@ -64,7 +64,7 @@ describe("monorepo release", () => {
     const result = await fixture.run()
     expect(result.error).toBeUndefined()
     expect(fixture.git("log", "-1", "--format=%s")).toBe(
-      "Release @fixture/example@1.0.1, alpha@1.0.1",
+      "Release alpha@1.0.1, @fixture/example@1.0.1",
     )
     expect(fixture.state().npm.publishes.map(entry => entry.name)).toEqual(["alpha"])
     expect(fixture.remoteGit("tag").split("\n").toSorted()).toEqual([
@@ -156,10 +156,11 @@ describe("monorepo release", () => {
     expect(result.output).toContain(subject)
     expect(result.output).toContain("alpha 1.0.0 → 1.1.0 (minor)")
     expect(result.output).toMatch(
-      /alpha@1\.1\.0\n {4}### Minor Changes\n\n {4}- \w+: Add a feature\.\n\nChanges:/,
+      /alpha@1\.1\.0\n {4}### Minor Changes\n\n {4}- \w+: Add a feature\.\n\n {2}@fixture\/beta@1\.0\.1\n/,
     )
+    expect(result.output).toMatch(/Fix a bug\.\n\nChanges:/)
     expect(result.output).toContain(
-      "Create GitHub Releases in owner/fixture: @fixture/beta@1.0.1, alpha@1.1.0",
+      "Create GitHub Releases in owner/fixture: alpha@1.1.0, @fixture/beta@1.0.1",
     )
     expect(fixture.git("rev-parse", "HEAD")).toBe(head)
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
@@ -179,7 +180,7 @@ describe("monorepo release", () => {
     )
     const result = await fixture.run({ dryRun: true })
     expect(result.error).toBeUndefined()
-    expect(result.output).toContain("Create and push tags @fixture/example@1.0.1, alpha@1.0.1")
+    expect(result.output).toContain("Create and push tags alpha@1.0.1, @fixture/example@1.0.1")
   })
 })
 
@@ -198,7 +199,7 @@ describe("monorepo release with dependent packages", () => {
     const fixture = createDependentFixture()
     const result = await fixture.run()
     expect(result.error).toBeUndefined()
-    expect(fixture.git("log", "-1", "--format=%s")).toBe("Release @fixture/beta@1.0.1, alpha@2.0.0")
+    expect(fixture.git("log", "-1", "--format=%s")).toBe("Release alpha@2.0.0, @fixture/beta@1.0.1")
     expect(JSON.parse(fixture.read("packages/beta/package.json")).dependencies).toEqual({
       alpha: "workspace:^2.0.0",
     })
@@ -257,7 +258,7 @@ describe("monorepo recovery", () => {
       "--quiet",
       "--amend",
       "--message",
-      "Release alpha@1.1.0, @fixture/beta@1.0.1",
+      "Release @fixture/beta@1.0.1, alpha@1.1.0",
     )
     fixture.rejectPushes(null)
     const result = await fixture.run({ resume: true })
