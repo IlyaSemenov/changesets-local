@@ -1,5 +1,16 @@
 # changesets-local
 
+## 1.2.1
+
+### Patch Changes
+
+- 426fe13: Fix releases waiting indefinitely for CI jobs awaiting environment approval.
+- 1d92b92: Fix skipped CI checks when releasing immediately after a push.
+- f3b1263: Ask about failed CI only when there are pending changesets to release.
+- f09a0da: Show which CI checks are still running while a release waits for them.
+- 4ec36e4: Retry reading CI checks after a network failure instead of failing the release.
+- 4ec36e4: Warn and continue the release instead of failing when the GitHub token cannot read CI checks.
+
 ## 1.2.0
 
 ### Minor Changes
