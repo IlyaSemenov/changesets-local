@@ -1,5 +1,17 @@
 # changesets-local
 
+## 1.2.0
+
+### Minor Changes
+
+- b12a6d3: Wait for CI on the released commit before the confirmation, and ask before releasing a commit whose CI has failed.
+
+### Patch Changes
+
+- 40366db: Stop `--dry-run` on another branch from advising to push its commits to the base branch.
+- c7cbf7a: Speed up runs in repositories with large lockfiles.
+- bbc09ce: Check npm publish permissions once per run.
+
 ## 1.1.0
 
 ### Minor Changes
