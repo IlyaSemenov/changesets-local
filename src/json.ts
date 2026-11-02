@@ -18,6 +18,19 @@ export async function readJsonFile<T>(path: string): Promise<T | undefined> {
     }
     throw error
   }
+  return parseJsonContent<T>(content, path)
+}
+
+/**
+ * Parses JSON content and uses `path` in error messages.
+ *
+ * Returns undefined for null content, which stands for a missing file, and fails with a ReleaseError when it is not valid JSON.
+ * The result is not validated against `T`.
+ */
+export function parseJsonContent<T>(content: string | null, path: string): T | undefined {
+  if (content === null) {
+    return undefined
+  }
   try {
     return JSON.parse(content) as T
   } catch (error) {

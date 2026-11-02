@@ -1,9 +1,22 @@
-import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { type Context, ReleaseError } from "./context"
-import { readJsonFile } from "./json"
+import { ReleaseError } from "./context"
+import { parseJsonContent } from "./json"
+
+/** Reads a file by its path from the repository root, or resolves to null when the file does not exist. */
+export type RepoFileReader = (path: string) => Promise<string | null>
+
+/** Returns a reader of files in a work tree. */
+export function readWorkTreeFiles(cwd: string): RepoFileReader {
+  return path =>
+    readFile(join(cwd, path), "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return null
+      }
+      throw error
+    })
+}
 
 /** Package managers whose projects can be released. */
 export type PackageManager = "npm" | "pnpm" | "bun"
@@ -54,15 +67,16 @@ const lockfiles: Array<[file: string, packageManager: PackageManager | "yarn"]> 
   ["yarn.lock", "yarn"],
 ]
 
-/** Reads the repository configuration at the project root and fails with an explanation when its layout is not supported. */
-export async function readProject(ctx: Context): Promise<Project> {
-  const packageJson = await readJsonFile<PackageJson>(join(ctx.cwd, "package.json"))
+/** Reads the repository configuration from its files, in the work tree or at a commit, and fails with an explanation when its layout is not supported. */
+export async function readProject(readRepoFile: RepoFileReader): Promise<Project> {
+  const packageJson = parseJsonContent<PackageJson>(
+    await readRepoFile("package.json"),
+    "package.json",
+  )
   if (!packageJson) {
     throw new ReleaseError("changesets-local requires package.json at the repository root.")
   }
-  const conventions = await readReleaseConventions(path =>
-    readFile(join(ctx.cwd, path), "utf8").catch(() => null),
-  )
+  const conventions = await readReleaseConventions(readRepoFile)
   if (!conventions.monorepo) {
     if (typeof packageJson.name !== "string" || typeof packageJson.version !== "string") {
       throw new ReleaseError("package.json must define the package name and version.")
@@ -74,7 +88,10 @@ export async function readProject(ctx: Context): Promise<Project> {
     }
   }
 
-  const config = await readJsonFile<ChangesetsConfig>(join(ctx.cwd, ".changeset", "config.json"))
+  const config = parseJsonContent<ChangesetsConfig>(
+    await readRepoFile(".changeset/config.json"),
+    ".changeset/config.json",
+  )
   if (!config) {
     throw new ReleaseError(
       "No .changeset/config.json. Set up Changesets with `npx changeset init`.",
@@ -87,7 +104,7 @@ export async function readProject(ctx: Context): Promise<Project> {
     throw new ReleaseError("Enable changelog generation in .changeset/config.json.")
   }
 
-  const { packageManager, lockfile } = detectPackageManager(ctx, packageJson)
+  const { packageManager, lockfile } = await detectPackageManager(readRepoFile, packageJson)
   return {
     ...conventions,
     hasReleaseCheck: typeof packageJson.scripts?.["release:check"] === "string",
@@ -120,32 +137,33 @@ function getTagPrivatePackages(privatePackages: unknown) {
   return (privatePackages as { tag?: unknown } | undefined)?.tag === true
 }
 
-function detectPackageManager(
-  ctx: Context,
+async function detectPackageManager(
+  readRepoFile: RepoFileReader,
   packageJson: PackageJson,
-): { packageManager: PackageManager; lockfile: string | undefined } {
+): Promise<{ packageManager: PackageManager; lockfile: string | undefined }> {
   const declared =
     typeof packageJson.packageManager === "string"
       ? packageJson.packageManager.split("@")[0]
       : undefined
-  const found = lockfiles.find(([file]) => existsSync(join(ctx.cwd, file)))
-  const packageManager = declared ?? found?.[1] ?? "npm"
+  const present: typeof lockfiles = []
+  for (const entry of lockfiles) {
+    if ((await readRepoFile(entry[0])) !== null) {
+      present.push(entry)
+    }
+  }
+  const packageManager = declared ?? present[0]?.[1] ?? "npm"
   if (packageManager !== "npm" && packageManager !== "pnpm" && packageManager !== "bun") {
     throw new ReleaseError(`${packageManager} is not supported; use npm, pnpm, or Bun.`)
   }
-  const lockfile = lockfiles.find(
-    ([file, owner]) => owner === packageManager && existsSync(join(ctx.cwd, file)),
-  )?.[0]
+  const lockfile = present.find(([, owner]) => owner === packageManager)?.[0]
   return { packageManager, lockfile }
 }
 
 /**
  * Reads the release conventions from repository files, at the work tree or at a past commit.
- *
- * `readRepoFile` returns the content of a file by its path from the repository root, or null when it does not exist.
  */
 export async function readReleaseConventions(
-  readRepoFile: (path: string) => Promise<string | null>,
+  readRepoFile: RepoFileReader,
 ): Promise<ReleaseConventions> {
   const packageJson = parseJson(await readRepoFile("package.json")) as PackageJson | undefined
   const config = parseJson(await readRepoFile(".changeset/config.json")) as

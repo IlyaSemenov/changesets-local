@@ -102,6 +102,7 @@ npx changesets-local --dry-run
 ```
 
 The dry run checks the repository and logins and shows the release notes, changed files, and steps, but does not update the lockfile or run `release:check`.
+It previews the release of the last commit and warns when the working tree has uncommitted changes, the branch is not in sync with its remote branch, or another branch is checked out.
 
 ### Monorepos
 

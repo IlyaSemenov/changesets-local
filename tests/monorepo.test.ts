@@ -165,6 +165,22 @@ describe("monorepo release", () => {
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
     expect(fixture.state().npm.publishes).toEqual([])
   })
+
+  it("previews the committed Changesets configuration in a dry run", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesetsConfig: { privatePackages: true },
+      changesets: { all: changeset("patch", "Fix everything.", ["alpha", privatePackage.name]) },
+    })
+    const config = JSON.parse(fixture.read(".changeset/config.json"))
+    fixture.write(
+      ".changeset/config.json",
+      JSON.stringify({ ...config, privatePackages: { version: true, tag: false } }),
+    )
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain("Create and push tags @fixture/example@1.0.1, alpha@1.0.1")
+  })
 })
 
 describe("monorepo release with dependent packages", () => {

@@ -177,4 +177,40 @@ describe("dry run", () => {
     expect(fixture.calls("npm").filter(([command]) => command === "publish")).toEqual([])
     expect(fixture.calls("gh").filter(([command]) => command === "release")).toEqual([])
   })
+
+  it("previews the release from HEAD with warnings about the work tree and branch", async () => {
+    const fixture = createFixture()
+    fixture.git("checkout", "--quiet", "-b", "feature")
+    fixture.git("commit", "--quiet", "--allow-empty", "--message", "Local change")
+    fixture.write(".changeset/feature.md", changeset("minor", "Add a feature."))
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "⚠ The working tree has uncommitted changes. Commit or discard them first:\n  - .changeset/feature.md",
+    )
+    expect(result.output).toContain(
+      "⚠ Releases are made from main (baseBranch in .changeset/config.json), but feature is checked out.",
+    )
+    expect(result.output).toContain(
+      "⚠ feature has commits that are not pushed to origin/main. Push them first.",
+    )
+    // The uncommitted changeset is not part of the preview.
+    expect(result.output).toContain(`${packageName} 1.0.0 → 1.0.1 (patch)`)
+    expect(result.output).toContain("Push it to origin/main")
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe(
+      "?? .changeset/feature.md",
+    )
+  })
+
+  it("previews the project as committed", async () => {
+    const fixture = createFixture()
+    const packageJson = JSON.parse(fixture.read("package.json"))
+    fixture.write("package.json", JSON.stringify({ ...packageJson, private: true }))
+    const config = JSON.parse(fixture.read(".changeset/config.json"))
+    fixture.write(".changeset/config.json", JSON.stringify({ ...config, baseBranch: "next" }))
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(`${packageName} 1.0.0 → 1.0.1 (patch)`)
+    expect(result.output).toContain("Push it to origin/main")
+  })
 })

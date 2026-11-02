@@ -42,3 +42,8 @@ export function logDetail(ctx: Context, text: string) {
 export function logDone(ctx: Context, text: string) {
   ctx.log(`${styleText("green", "✔")} ${text}`)
 }
+
+/** Prints a warning about a problem that does not stop the command. */
+export function logWarning(ctx: Context, text: string) {
+  ctx.log(`${styleText("yellow", "⚠")} ${text}`)
+}

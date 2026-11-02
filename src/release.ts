@@ -13,7 +13,7 @@ import {
   type PublishPlanEntry,
   readPublishPlan,
 } from "./changesets"
-import { type Context, logDetail, logDone, logStep, ReleaseError } from "./context"
+import { type Context, logDetail, logDone, logStep, logWarning, ReleaseError } from "./context"
 import { readCommand, runCommand } from "./exec"
 import {
   createTag,
@@ -63,6 +63,7 @@ import {
   type Project,
   readProject,
   readReleaseConventions,
+  readWorkTreeFiles,
 } from "./project"
 
 /** Options of a release run. */
@@ -135,7 +136,7 @@ const workspaceSpecifierPrefixes = ["workspace:", "catalog:"]
  * With `resume`, finishes the release of the newest release commit instead, if it is incomplete.
  */
 export async function release(ctx: Context, options: ReleaseOptions = {}) {
-  const workspace = await prepareWorkspace(ctx)
+  const workspace = await prepareWorkspace(ctx, options)
   if (options.resume) {
     await resumeRelease(ctx, workspace, options)
   } else {
@@ -143,7 +144,12 @@ export async function release(ctx: Context, options: ReleaseOptions = {}) {
   }
 }
 
-async function prepareWorkspace(ctx: Context): Promise<Workspace> {
+/**
+ * Checks the repository, tools, and logins, and reads what a release needs.
+ *
+ * A dry run previews the release of HEAD: it reads the project from HEAD and warns about a dirty work tree or another branch instead of failing.
+ */
+async function prepareWorkspace(ctx: Context, options: ReleaseOptions): Promise<Workspace> {
   logStep(ctx, "Checking the repository")
   const root = await getWorkTreeRoot(ctx)
   if (!root) {
@@ -152,25 +158,33 @@ async function prepareWorkspace(ctx: Context): Promise<Workspace> {
   if ((await realpath(root)) !== (await realpath(ctx.cwd))) {
     throw new ReleaseError(`Run changesets-local from the repository root: ${root}`)
   }
-  const project = await readProject(ctx)
+  // A dry run previews the release of HEAD, so it reads the project as committed.
+  const project = await readProject(
+    options.dryRun ? path => readFileAtRevision(ctx, "HEAD", path) : readWorkTreeFiles(ctx.cwd),
+  )
   await assertChangesetsInstalled(ctx)
 
   const changedPaths = await listChangedPaths(ctx)
   if (changedPaths.length > 0) {
-    throw new ReleaseError(
+    reportProblem(
+      ctx,
+      options,
       `The working tree has uncommitted changes. Commit or discard them first:\n${formatList(changedPaths)}`,
     )
   }
+  const { baseBranch } = project
   const branch = await getCurrentBranch(ctx)
-  if (branch !== project.baseBranch) {
-    throw new ReleaseError(
-      `Releases are made from ${project.baseBranch} (baseBranch in .changeset/config.json), but ${branch ? `${branch} is checked out` : "HEAD is detached"}.`,
+  if (branch !== baseBranch) {
+    reportProblem(
+      ctx,
+      options,
+      `Releases are made from ${baseBranch} (baseBranch in .changeset/config.json), but ${branch ? `${branch} is checked out` : "HEAD is detached"}.`,
     )
   }
-  const upstream = await getUpstream(ctx, branch)
+  const upstream = await getUpstream(ctx, baseBranch)
   if (!upstream) {
     throw new ReleaseError(
-      `${branch} does not track a remote branch. Push it with \`git push -u origin ${branch}\`.`,
+      `${baseBranch} does not track a remote branch. Push it with \`git push -u origin ${baseBranch}\`.`,
     )
   }
 
@@ -181,8 +195,16 @@ async function prepareWorkspace(ctx: Context): Promise<Workspace> {
   await assertNpmjsRegistry(ctx, getRegistryTools(project), [])
   const repo = await resolveGitHubRepo(ctx, await getRemoteUrl(ctx, upstream.remote))
   await fetchRemote(ctx, upstream.remote)
-  logDone(ctx, `${branch} tracks ${upstream.remote}, npm user ${npmUser}, GitHub ${repo}`)
-  return { project, branch, upstream, repo, npmUser }
+  logDone(ctx, `${baseBranch} tracks ${upstream.remote}, npm user ${npmUser}, GitHub ${repo}`)
+  return { project, branch: branch ?? "HEAD", upstream, repo, npmUser }
+}
+
+/** Fails with a problem that prevents a release, or prints it as a warning in a dry run. */
+function reportProblem(ctx: Context, options: ReleaseOptions, message: string) {
+  if (!options.dryRun) {
+    throw new ReleaseError(message)
+  }
+  logWarning(ctx, message)
 }
 
 async function startRelease(ctx: Context, workspace: Workspace, options: ReleaseOptions) {
@@ -196,19 +218,14 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
 
   const syncProblem = await describeSyncProblem(ctx, workspace)
   if (syncProblem) {
-    throw new ReleaseError(syncProblem)
+    reportProblem(ctx, options, syncProblem)
   }
 
-  const plan = await planRelease(ctx)
-  if (plan.length === 0) {
-    throw new ReleaseError(
-      "No pending changesets release any package. Add one with `npx changeset` and commit it.",
-    )
-  }
   if (options.dryRun) {
-    await previewRelease(ctx, workspace, plan)
+    await previewRelease(ctx, workspace)
     return
   }
+  const plan = await planPendingRelease(ctx, ctx.cwd)
 
   const { commit, subject, releases } = await createReleaseCommit(ctx, workspace, plan)
   await finishRelease(
@@ -230,7 +247,18 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
   )
 }
 
-/** Describes how the branch differs from its remote branch, or returns null when they are at the same commit. */
+/** Plans the release of the pending changesets in a work tree, and fails when they release nothing. */
+async function planPendingRelease(ctx: Context, cwd: string) {
+  const plan = await planRelease(ctx, cwd)
+  if (plan.length === 0) {
+    throw new ReleaseError(
+      "No pending changesets release any package. Add one with `npx changeset` and commit it.",
+    )
+  }
+  return plan
+}
+
+/** Describes how HEAD differs from the remote base branch, or returns null when they are at the same commit. */
 async function describeSyncProblem(ctx: Context, workspace: Workspace) {
   const { branch, upstream } = workspace
   const head = (await resolveCommit(ctx, "HEAD"))!
@@ -542,8 +570,7 @@ async function restoreWorkTree(ctx: Context) {
 }
 
 /** Shows the release that pending changesets would produce, versioning a temporary worktree instead of the project. */
-async function previewRelease(ctx: Context, workspace: Workspace, plan: PlannedRelease[]) {
-  const { project } = workspace
+async function previewRelease(ctx: Context, workspace: Workspace) {
   logStep(ctx, "Versioning in a temporary worktree")
   const tempDir = await mkdtemp(join(tmpdir(), "changesets-local-"))
   const tree = join(tempDir, "tree")
@@ -553,6 +580,8 @@ async function previewRelease(ctx: Context, workspace: Workspace, plan: PlannedR
     try {
       // Changesets resolves the changelog generator from the project dependencies.
       await symlink(join(ctx.cwd, "node_modules"), join(tree, "node_modules"))
+      // Planned from HEAD like the preview, without uncommitted changesets.
+      const plan = await planPendingRelease(ctx, tree)
       const versioned = await versionPackages(ctx, workspace, plan, tree)
       const publishPlan = await assertPublishable(
         ctx,
@@ -584,6 +613,7 @@ async function previewRelease(ctx: Context, workspace: Workspace, plan: PlannedR
     await rm(tempDir, { recursive: true, force: true })
   }
   printSummary(ctx, workspace, summary)
+  const { project } = workspace
   const skipped = [
     project.lockfile && `${project.lockfile} update`,
     project.hasReleaseCheck && "release:check",
