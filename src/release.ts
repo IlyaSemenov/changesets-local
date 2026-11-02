@@ -18,6 +18,7 @@ import { readCommand, runCommand } from "./exec"
 import {
   createTag,
   fetchRemote,
+  getCommitFiles,
   getCommitSubject,
   getCurrentBranch,
   getLocalTagCommit,
@@ -62,10 +63,10 @@ import {
 } from "./packages"
 import {
   getLockfileUpdateCommand,
+  getWorkTreeFiles,
   type Project,
   readProject,
   readReleaseConventions,
-  readWorkTreeFiles,
 } from "./project"
 
 /** Options of a release run. */
@@ -159,7 +160,7 @@ async function prepareWorkspace(ctx: Context, options: ReleaseOptions): Promise<
   }
   // A dry run previews the release of HEAD, so it reads the project as committed.
   const project = await readProject(
-    options.dryRun ? path => readFileAtRevision(ctx, "HEAD", path) : readWorkTreeFiles(ctx.cwd),
+    options.dryRun ? getCommitFiles(ctx, "HEAD") : getWorkTreeFiles(ctx.cwd),
   )
   await assertChangesetsInstalled(ctx)
 

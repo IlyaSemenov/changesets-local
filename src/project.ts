@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { access, readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { ReleaseError } from "./context"
@@ -7,15 +7,27 @@ import { parseJsonContent } from "./json"
 /** Reads a file by its path from the repository root, or resolves to null when the file does not exist. */
 export type RepoFileReader = (path: string) => Promise<string | null>
 
-/** Returns a reader of files in a work tree. */
-export function readWorkTreeFiles(cwd: string): RepoFileReader {
-  return path =>
-    readFile(join(cwd, path), "utf8").catch((error: NodeJS.ErrnoException) => {
+/** Access to the files of a repository, in the work tree or at a commit, by their paths from the repository root. */
+export interface RepoFiles {
+  read: RepoFileReader
+  /** Checks whether a file exists without reading it, for large files such as lockfiles. */
+  exists: (path: string) => Promise<boolean>
+}
+
+/** Returns access to the files of a work tree. */
+export function getWorkTreeFiles(cwd: string): RepoFiles {
+  const ignoreMissing =
+    <T>(missing: T) =>
+    (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
-        return null
+        return missing
       }
       throw error
-    })
+    }
+  return {
+    read: path => readFile(join(cwd, path), "utf8").catch(ignoreMissing(null)),
+    exists: path => access(join(cwd, path)).then(() => true, ignoreMissing(false)),
+  }
 }
 
 /** Package managers whose projects can be released. */
@@ -68,15 +80,15 @@ const lockfiles: Array<[file: string, packageManager: PackageManager | "yarn"]> 
 ]
 
 /** Reads the repository configuration from its files, in the work tree or at a commit, and fails with an explanation when its layout is not supported. */
-export async function readProject(readRepoFile: RepoFileReader): Promise<Project> {
+export async function readProject(files: RepoFiles): Promise<Project> {
   const packageJson = parseJsonContent<PackageJson>(
-    await readRepoFile("package.json"),
+    await files.read("package.json"),
     "package.json",
   )
   if (!packageJson) {
     throw new ReleaseError("changesets-local requires package.json at the repository root.")
   }
-  const conventions = await readReleaseConventions(readRepoFile)
+  const conventions = await readReleaseConventions(files.read)
   if (!conventions.monorepo) {
     if (typeof packageJson.name !== "string" || typeof packageJson.version !== "string") {
       throw new ReleaseError("package.json must define the package name and version.")
@@ -89,7 +101,7 @@ export async function readProject(readRepoFile: RepoFileReader): Promise<Project
   }
 
   const config = parseJsonContent<ChangesetsConfig>(
-    await readRepoFile(".changeset/config.json"),
+    await files.read(".changeset/config.json"),
     ".changeset/config.json",
   )
   if (!config) {
@@ -104,7 +116,7 @@ export async function readProject(readRepoFile: RepoFileReader): Promise<Project
     throw new ReleaseError("Enable changelog generation in .changeset/config.json.")
   }
 
-  const { packageManager, lockfile } = await detectPackageManager(readRepoFile, packageJson)
+  const { packageManager, lockfile } = await detectPackageManager(files, packageJson)
   return {
     ...conventions,
     hasReleaseCheck: typeof packageJson.scripts?.["release:check"] === "string",
@@ -138,7 +150,7 @@ function getTagPrivatePackages(privatePackages: unknown) {
 }
 
 async function detectPackageManager(
-  readRepoFile: RepoFileReader,
+  files: RepoFiles,
   packageJson: PackageJson,
 ): Promise<{ packageManager: PackageManager; lockfile: string | undefined }> {
   const declared =
@@ -147,7 +159,7 @@ async function detectPackageManager(
       : undefined
   const present: typeof lockfiles = []
   for (const entry of lockfiles) {
-    if ((await readRepoFile(entry[0])) !== null) {
+    if (await files.exists(entry[0])) {
       present.push(entry)
     }
   }

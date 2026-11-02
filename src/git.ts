@@ -177,6 +177,15 @@ export async function readFileAtRevision(ctx: Context, rev: string, path: string
   return result.code === 0 ? result.stdout : null
 }
 
+/** Returns access to the files of a commit, by their paths from the repository root. */
+export function getCommitFiles(ctx: Context, rev: string) {
+  return {
+    read: (path: string) => readFileAtRevision(ctx, rev, path),
+    exists: async (path: string) =>
+      (await captureCommand(ctx, "git", ["cat-file", "-e", `${rev}:${path}`])).code === 0,
+  }
+}
+
 /** Stages every change in the work tree and returns the hash of the resulting tree. */
 export async function stageWorkTree(ctx: Context) {
   await readCommand(ctx, "git", ["add", "--all"])
