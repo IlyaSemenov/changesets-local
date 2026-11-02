@@ -55,7 +55,9 @@ import {
   listWorkTreeVersionChanges,
   type PackageRelease,
   parseManifest,
+  parseReleaseSubject,
   readPackageManifest,
+  releaseSubjectPrefix,
   sortByName,
 } from "./packages"
 import {
@@ -122,9 +124,6 @@ interface ReleaseSummary {
 }
 
 const changelogFile = "CHANGELOG.md"
-
-/** Prefix of release commit subjects, such as `Release a@1.0.0, b@2.0.0`. */
-const releaseSubjectPrefix = "Release "
 
 /** Specifiers that npm leaves unchanged on publication and that only pnpm replaces. */
 const workspaceSpecifierPrefixes = ["workspace:", "catalog:"]
@@ -655,15 +654,20 @@ async function resumeRelease(ctx: Context, workspace: Workspace, options: Releas
 /**
  * Finds the newest release commit reachable from HEAD.
  *
- * A release commit has a canonical subject that matches the package versions it changes, whoever created it.
+ * A release commit has a subject that lists exactly the package versions it changes, in any order, whoever created it.
  * Other commits, such as manual version bumps and reverts, are skipped.
  */
 async function findRelease(ctx: Context): Promise<FoundRelease | null> {
   for (const { hash, subject } of await listCommitsBySubjectPrefix(ctx, releaseSubjectPrefix)) {
-    // The conventions of the release commit, not current ones, define its subject and tags.
+    // Subjects of other tools, such as `Release 1.2.3`, are skipped without reading their commits.
+    const listed = parseReleaseSubject(subject)
+    if (!listed) {
+      continue
+    }
+    // The conventions of the release commit, not current ones, define its packages and tags.
     const conventions = await readReleaseConventions(path => readFileAtRevision(ctx, hash, path))
     const packages = await listCommitVersionChanges(ctx, conventions, hash)
-    if (packages.length > 0 && formatReleaseSubject(packages) === subject) {
+    if (packages.length > 0 && formatReleaseSubject(packages) === formatReleaseSubject(listed)) {
       return { commit: hash, subject, packages }
     }
   }

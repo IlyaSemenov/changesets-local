@@ -248,6 +248,25 @@ describe("monorepo recovery", () => {
     ])
   })
 
+  it("resumes a release commit that lists its packages in another order", async () => {
+    const fixture = createFixture({ monorepo: true })
+    fixture.rejectPushes("refs/heads/*")
+    expect((await fixture.run()).error?.message).toContain("is incomplete")
+    fixture.git(
+      "commit",
+      "--quiet",
+      "--amend",
+      "--message",
+      "Release alpha@1.1.0, @fixture/beta@1.0.1",
+    )
+    fixture.rejectPushes(null)
+    const result = await fixture.run({ resume: true })
+    expect(result.error).toBeUndefined()
+    expect(fixture.remoteGit("rev-parse", "main")).toBe(fixture.git("rev-parse", "HEAD"))
+    expectPackageReleased(fixture, "packages/alpha", "1.1.0")
+    expectPackageReleased(fixture, "packages/beta", "1.0.1")
+  })
+
   it("publishes packages in parallel and does not trust a publication that npm does not show", async () => {
     const fixture = createFixture({ monorepo: true })
     fixture.updateState(state => {

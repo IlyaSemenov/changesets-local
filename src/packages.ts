@@ -73,11 +73,37 @@ export function getReleaseTag(
   return conventions.monorepo ? `${release.name}@${release.version}` : `v${release.version}`
 }
 
+/** Start of every release commit subject. */
+export const releaseSubjectPrefix = "Release "
+
 /** Formats the subject of a release commit, such as `Release a@1.0.0, b@2.0.0`, with packages sorted by name. */
 export function formatReleaseSubject(releases: Array<{ name: string; version: string }>) {
-  return `Release ${sortByName(releases)
+  return `${releaseSubjectPrefix}${sortByName(releases)
     .map(release => `${release.name}@${release.version}`)
     .join(", ")}`
+}
+
+/**
+ * Parses the package versions that a subject in the format of `formatReleaseSubject` lists, in any order.
+ *
+ * Returns null for other subjects, such as `Release 1.2.3` of other release tools.
+ */
+export function parseReleaseSubject(
+  subject: string,
+): Array<{ name: string; version: string }> | null {
+  if (!subject.startsWith(releaseSubjectPrefix)) {
+    return null
+  }
+  const versions: Array<{ name: string; version: string }> = []
+  for (const item of subject.slice(releaseSubjectPrefix.length).split(", ")) {
+    // A package name, possibly scoped such as `@acme/core`, then `@` and a version.
+    const match = /^((?:@[^\s@/,]+\/)?[^\s@/,]+)@(\d[^\s@,]*)$/.exec(item)
+    if (!match) {
+      return null
+    }
+    versions.push({ name: match[1]!, version: match[2]! })
+  }
+  return versions
 }
 
 /** Sorts packages by name in code point order, the order of release commit subjects. */

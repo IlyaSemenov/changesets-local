@@ -154,7 +154,7 @@ npx changesets-local --resume
 After you confirm, it performs only the remaining steps, without bumping versions again.
 Combine it with `--dry-run` to see the state without changing anything.
 
-A release commit is a commit whose subject, such as `Release a@1.0.0, b@2.0.0`, lists exactly the package versions it changes, sorted by name, whoever made it.
+A release commit is a commit whose subject, such as `Release a@1.0.0, b@2.0.0`, lists exactly the package versions it changes, in any order, whoever made it.
 
 changesets-local never publishes a version that npm already has, overwrites a tag, or force-pushes.
 When the state is inconsistent, for example when a remote tag points to a different commit or a GitHub Release is a draft, it explains the problem and stops.
