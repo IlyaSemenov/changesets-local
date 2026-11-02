@@ -40,6 +40,14 @@ describe("pending changes", () => {
       `${packageName}@1.0.1 is already published on npm.`,
     )
   })
+
+  it("fails when the tag of the new version exists", async () => {
+    const fixture = createFixture()
+    fixture.remoteGit("tag", "v1.0.1", "main")
+    expect(await runRejected(fixture)).toContain(
+      `Tag v1.0.1 already exists, but ${packageName} is at 1.0.0.`,
+    )
+  })
 })
 
 describe("repository state", () => {

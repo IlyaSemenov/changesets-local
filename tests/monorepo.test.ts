@@ -90,6 +90,25 @@ describe("monorepo release", () => {
     expect(fixture.state().gh.releases.map(entry => entry.tag)).toEqual(["alpha@1.0.1"])
   })
 
+  it("does not check versioned private packages on npm", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesetsConfig: { privatePackages: { version: true, tag: false } },
+      changesets: { all: changeset("patch", "Fix everything.", ["alpha", privatePackage.name]) },
+    })
+    fixture.updateState(state => {
+      // Another package with the same name is on npm.
+      state.npm.versions[privatePackage.name] = ["1.0.1"]
+    })
+    // The scope of the private package, which no released public package shares, uses a private registry.
+    fixture.env["npm_config_@fixture:registry"] = "https://npm.example.com/"
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(fixture.remoteGit("tag")).toBe("alpha@1.0.1")
+    const resumed = await fixture.run({ resume: true })
+    expect(resumed.error).toBeUndefined()
+    expect(resumed.output).toContain("is completely released.")
+  })
+
   it("stops before publishing an unpublished package outside the release", async () => {
     const fixture = createFixture({ monorepo: true })
     fixture.updateState(state => {

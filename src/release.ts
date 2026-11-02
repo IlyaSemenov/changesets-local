@@ -51,7 +51,6 @@ import {
 } from "./npm"
 import {
   formatReleaseSubject,
-  getReleaseTag,
   listCommitVersionChanges,
   listWorkTreeVersionChanges,
   type PackageRelease,
@@ -214,8 +213,6 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
       "No pending changesets release any package. Add one with `npx changeset` and commit it.",
     )
   }
-  await assertPlanUnreleased(ctx, workspace, plan)
-
   if (options.dryRun) {
     await previewRelease(ctx, workspace, plan)
     return
@@ -286,38 +283,37 @@ async function isApparentlyAbandoned(ctx: Context, state: ReleaseState) {
   return true
 }
 
-/** Fails when a planned version is already tagged or published. */
-async function assertPlanUnreleased(ctx: Context, workspace: Workspace, plan: PlannedRelease[]) {
+/** Fails when a versioned package already has its tag, or a public one its version on npm. */
+async function assertUnreleased(
+  ctx: Context,
+  workspace: Workspace,
+  plan: PlannedRelease[],
+  releases: PackageRelease[],
+) {
   const { project, upstream } = workspace
-  await assertPackageRegistries(ctx, project, plan)
-  // Whether a package is private is known only after versioning; check the tag it would have if public.
-  const tags = plan.map(entry => ({
-    entry,
-    tag: getReleaseTag(project, {
-      name: entry.name,
-      version: entry.newVersion,
-      dir: "",
-      private: false,
-    })!,
-  }))
+  // Private packages are not published, and their names may belong to other packages on npm.
+  const publicPackages = releases.filter(entry => !entry.private)
+  await assertPackageRegistries(ctx, project, publicPackages)
+  const tagged = getTagged(releases)
   const remoteTags = await getRemoteTagCommits(
     ctx,
     upstream.remote,
-    tags.map(({ tag }) => tag),
+    tagged.map(entry => entry.tag!),
   )
-  for (const { entry, tag } of tags) {
-    if (remoteTags.has(tag) || (await getLocalTagCommit(ctx, tag))) {
+  for (const entry of tagged) {
+    if (remoteTags.has(entry.tag!) || (await getLocalTagCommit(ctx, entry.tag!))) {
+      const oldVersion = plan.find(planned => planned.name === entry.name)?.oldVersion
       throw new ReleaseError(
-        `Tag ${tag} already exists, but ${entry.name} is at ${entry.oldVersion}.`,
+        `Tag ${entry.tag} already exists, but ${entry.name} is at ${oldVersion}.`,
       )
     }
   }
   const published = await Promise.all(
-    plan.map(entry => isVersionPublished(ctx, entry.name, entry.newVersion)),
+    publicPackages.map(entry => isVersionPublished(ctx, entry.name, entry.version)),
   )
-  const entry = plan.find((_, index) => published[index])
+  const entry = publicPackages.find((_, index) => published[index])
   if (entry) {
-    throw new ReleaseError(`${entry.name}@${entry.newVersion} is already published on npm.`)
+    throw new ReleaseError(`${entry.name}@${entry.version} is already published on npm.`)
   }
 }
 
@@ -382,7 +378,11 @@ async function createReleaseCommit(ctx: Context, workspace: Workspace, plan: Pla
   return { commit, subject, releases: committed }
 }
 
-/** Applies the pending changesets in a work tree and reads the versioned packages and their release notes. */
+/**
+ * Applies the pending changesets in a work tree and reads the versioned packages and their release notes.
+ *
+ * Fails when a versioned package is already released; only versioning tells which packages are private and tagged.
+ */
 async function versionPackages(
   ctx: Context,
   workspace: Workspace,
@@ -399,6 +399,7 @@ async function versionPackages(
       `\`changeset version\` set ${formatVersions(releases) || "no versions"}, but ${planned} was planned.`,
     )
   }
+  await assertUnreleased(ctx, workspace, plan, releases)
   const notes = new Map<string, string>()
   for (const entry of releases) {
     const changelog = await readFile(join(cwd, entry.dir, changelogFile), "utf8").catch(() => "")
@@ -637,7 +638,11 @@ async function inspectRelease(
   workspace: Workspace,
   found: FoundRelease,
 ): Promise<ReleaseState> {
-  await assertPackageRegistries(ctx, workspace.project, found.packages)
+  await assertPackageRegistries(
+    ctx,
+    workspace.project,
+    found.packages.filter(entry => !entry.private),
+  )
   const tags = getTagged(found.packages).map(entry => entry.tag!)
   const [pushed, remoteTags, packages] = await Promise.all([
     isAncestor(ctx, found.commit, workspace.upstream.trackingRef),
