@@ -66,6 +66,14 @@ export interface FakeState {
     >
     /** Commit statuses by commit; a status reports `pending` for `pendingReads` reads. */
     statuses: Record<string, Array<{ context: string; state: string; pendingReads?: number }>>
+    /** Makes `count` requests for CI checks fail with `error` after the first `after` requests. */
+    checkRequestFailures: {
+      after: number
+      count: number
+      error: "network" | "no-access" | "rate-limit"
+    } | null
+    /** Number of requests for CI checks so far. */
+    checkRequests: number
   }
 }
 
@@ -89,6 +97,8 @@ export function createFakeState(): FakeState {
       createFailure: false,
       checkRuns: {},
       statuses: {},
+      checkRequestFailures: null,
+      checkRequests: 0,
     },
   }
 }
@@ -255,6 +265,21 @@ if (import.meta.main) {
       const match = /^repos\/(.+)\/commits\/(\w+)\/(check-runs|status)\?/.exec(args[2]!)
       if (!match || match[1] !== state.gh.repo) {
         fail(`unexpected endpoint ${args[2]}`)
+      }
+      let failure: NonNullable<FakeState["gh"]["checkRequestFailures"]>["error"] | null = null
+      updateFakeState(stateDir, current => {
+        const failures = current.gh.checkRequestFailures
+        const request = current.gh.checkRequests++
+        if (failures && request >= failures.after && request < failures.after + failures.count) {
+          failure = failures.error
+        }
+      })
+      if (failure === "network") {
+        fail(`Get "https://api.github.com/${args[2]}": read: connection reset by peer`)
+      } else if (failure === "no-access") {
+        fail("gh: Resource not accessible by personal access token (HTTP 403)")
+      } else if (failure === "rate-limit") {
+        fail("gh: API rate limit exceeded for user ID 1. (HTTP 403)")
       }
       const [, , commit, endpoint] = match!
       const items: unknown[] = []

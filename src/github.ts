@@ -1,5 +1,5 @@
 import { type Context, ReleaseError } from "./context"
-import { captureCommand, readCommand, runCommand } from "./exec"
+import { captureCommand, describeFailure, readCommand, runCommand } from "./exec"
 
 /** Repository permissions that allow creating releases. */
 const writePermissions = new Set(["ADMIN", "MAINTAIN", "WRITE"])
@@ -110,6 +110,7 @@ const passingConclusions = new Set(["success", "neutral", "skipped"])
  * Lists the latest check runs and commit statuses of a commit.
  *
  * A completed check run passes with a conclusion that branch protection accepts and fails with any other, such as `cancelled` or `timed_out`.
+ * Fails with `GitHubAccessError` when the token cannot access the checks or the repository.
  */
 export async function listCommitChecks(
   ctx: Context,
@@ -164,10 +165,26 @@ function getStatusState(state: string): CommitCheck["state"] {
   return state === "pending" || state === "success" ? state : "failure"
 }
 
-/** Reads every page of a GitHub REST API list and returns the items that a jq filter selects. */
+/** A failure of a GitHub API request that GitHub refused, such as for a token without access to the resource. */
+export class GitHubAccessError extends ReleaseError {
+  override name = "GitHubAccessError"
+}
+
+/**
+ * Reads every page of a GitHub REST API list and returns the items that a jq filter selects.
+ *
+ * Fails with `GitHubAccessError` when GitHub refuses access with 403 or 404, and with `ReleaseError` on other failures, such as network errors and exceeded rate limits.
+ */
 async function readJsonLines<T>(ctx: Context, endpoint: string, filter: string) {
-  const output = await readCommand(ctx, "gh", ["api", "--paginate", endpoint, "--jq", filter])
-  return output
+  const args = ["api", "--paginate", endpoint, "--jq", filter]
+  const result = await captureCommand(ctx, "gh", args)
+  if (result.code !== 0) {
+    // `gh api` reports HTTP errors as `gh: <message> (HTTP <status>)`; GitHub also answers 403 when a rate limit is exceeded.
+    const denied = /\(HTTP 40[34]\)/.test(result.stderr) && !/rate limit/i.test(result.stderr)
+    const ErrorClass = denied ? GitHubAccessError : ReleaseError
+    throw new ErrorClass(describeFailure("gh", args, result))
+  }
+  return result.stdout
     .split("\n")
     .filter(Boolean)
     .map(line => JSON.parse(line) as T)

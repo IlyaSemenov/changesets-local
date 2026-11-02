@@ -261,6 +261,100 @@ describe("CI checks", () => {
     expectReleased(fixture, "1.0.1")
   })
 
+  it("warns and releases when the token cannot access CI checks", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 0, count: 100, error: "no-access" }
+    })
+    const head = fixture.git("rev-parse", "--short=7", "HEAD")
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(`⚠ Cannot read CI checks on ${head}; skipping them.`)
+    expect(result.output).toContain("Resource not accessible by personal access token")
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("retries the first read of the checks after a network failure instead of skipping them", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 0, count: 1, error: "network" }
+    })
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.output).toContain(`Cannot read CI checks on ${short}; retrying.`)
+    expect(result.output).not.toContain("skipping them")
+    expect(result.questions).toEqual(["Release despite the failed CI?"])
+  })
+
+  it("retries reading the checks when a read fails while waiting", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, {
+      runs: [{ name: "test", conclusion: "success", pendingReads: 3 }],
+    })
+    // Each read requests check runs and statuses; the early read and the first read of the wait succeed.
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 4, count: 2, error: "network" }
+    })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(`Cannot read CI checks on ${short}; retrying.`)
+    expect(result.output).toContain(`✔ CI passed on ${short}`)
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("fails and restores the working tree when reading the checks keeps failing while waiting", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, {
+      runs: [{ name: "test", conclusion: "success", pendingReads: 3 }],
+    })
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 4, count: 100, error: "network" }
+    })
+    const result = await fixture.run()
+    expect(result.error?.message).toMatch(
+      new RegExp(
+        `^Cannot read CI checks on ${short} after 3 attempts\\.\n.*connection reset by peer`,
+        "s",
+      ),
+    )
+    expect(result.questions).toEqual([])
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
+  it("fails when the token loses access to the checks while waiting", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, {
+      runs: [{ name: "test", conclusion: "success", pendingReads: 3 }],
+    })
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 4, count: 100, error: "no-access" }
+    })
+    const result = await fixture.run()
+    expect(result.error?.message).toMatch(
+      new RegExp(`^Cannot read CI checks on ${short}\\.\n.*\\(HTTP 403\\)`, "s"),
+    )
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+  })
+
+  it("fails instead of skipping the checks when the API rate limit is exceeded", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
+    fixture.updateState(state => {
+      state.gh.checkRequestFailures = { after: 0, count: 100, error: "rate-limit" }
+    })
+    const result = await fixture.run()
+    expect(result.error?.message).toMatch(
+      new RegExp(
+        `^Cannot read CI checks on ${short} after 3 attempts\\.\n.*API rate limit exceeded`,
+        "s",
+      ),
+    )
+    expect(result.output).not.toContain("skipping them")
+    expect(result.questions).toEqual([])
+  })
+
   it("asks about failed checks only when there is something to release", async () => {
     const fixture = createFixture({ changesets: {} })
     setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
