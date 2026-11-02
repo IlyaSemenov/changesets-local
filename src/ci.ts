@@ -46,13 +46,18 @@ export async function awaitChecks(ctx: Context, repo: string, pending: PendingCh
   const { commit } = pending
   const short = commit.slice(0, 7)
   let checks = await listCommitChecks(ctx, repo, commit)
-  if (isRunning(checks)) {
-    logStep(ctx, `Waiting for CI on ${short}`)
-    logDetail(ctx, formatCheckNames(checks, "pending"))
-    while (isRunning(checks)) {
-      await delay(ctx, ctx.pollInterval)
-      checks = await listCommitChecks(ctx, repo, commit)
+  let running = ""
+  while (isRunning(checks)) {
+    if (!running) {
+      logStep(ctx, `Waiting for CI on ${short}`)
     }
+    const names = formatCheckNames(checks, "pending")
+    if (names !== running) {
+      logDetail(ctx, `Running: ${names}`)
+      running = names
+    }
+    await delay(ctx, ctx.pollInterval)
+    checks = await listCommitChecks(ctx, repo, commit)
   }
   if (hasFailures(checks)) {
     await confirmRelease(ctx, commit, checks)

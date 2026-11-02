@@ -185,7 +185,8 @@ describe("CI checks", () => {
     const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
     const short = setChecks(fixture, {
       runs: [
-        { name: "test", conclusion: "success", pendingReads: 3 },
+        { name: "test", conclusion: "success", pendingReads: 4 },
+        { name: "lint", conclusion: "success", pendingReads: 2 },
         { name: "deploy", conclusion: "skipped" },
       ],
       statuses: [{ context: "ci/external", state: "success", pendingReads: 1 }],
@@ -193,9 +194,10 @@ describe("CI checks", () => {
     const result = await fixture.run()
     expect(result.error).toBeUndefined()
     expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
-    expect(result.output).toContain(`CI is running on ${short}: test, ci/external.`)
-    expect(result.output).toContain(`▸ Waiting for CI on ${short}\ntest`)
-    expect(result.output).toContain(`✔ CI passed on ${short}`)
+    expect(result.output).toContain(`CI is running on ${short}: test, lint, ci/external.`)
+    expect(result.output).toContain(
+      `▸ Waiting for CI on ${short}\nRunning: test, lint\nRunning: test\n✔ CI passed on ${short}`,
+    )
     expect(result.output.indexOf("release:check")).toBeLessThan(
       result.output.indexOf("Waiting for CI"),
     )
