@@ -378,6 +378,7 @@ async function createReleaseCommit(ctx: Context, workspace: Workspace, plan: Pla
       await runCommand(ctx, ...getLockfileUpdateCommand(project.packageManager))
     }
     const publishPlan = await assertPublishable(ctx, workspace, getTagged(releases), ctx.cwd)
+    await assertNpmPermissions(ctx, workspace, releases)
     if (project.hasReleaseCheck) {
       await runReleaseCheck(ctx, workspace)
     }
@@ -451,9 +452,22 @@ async function versionPackages(
 }
 
 /**
+ * Fails unless the npm user can publish the public packages.
+ *
+ * Checked once per run, before the confirmation or before a resumed release pushes.
+ */
+function assertNpmPermissions(ctx: Context, workspace: Workspace, packages: PackageRelease[]) {
+  return Promise.all(
+    packages
+      .filter(entry => !entry.private)
+      .map(entry => assertCanPublish(ctx, workspace.npmUser, entry.name)),
+  )
+}
+
+/**
  * Fails unless `changeset publish` in a work tree would publish and tag exactly the given packages, in a way that matches the release.
  *
- * Public packages are expected as publications and tagged private packages as tags only, and the npm user must be able to publish the public ones.
+ * Public packages are expected as publications and tagged private packages as tags only.
  * Returns the publish plan, which includes the npm dist-tags.
  */
 async function assertPublishable(
@@ -503,9 +517,6 @@ async function assertPublishable(
     }
   }
   await assertPackageRegistries(ctx, project, publicPackages)
-  await Promise.all(
-    publicPackages.map(entry => assertCanPublish(ctx, workspace.npmUser, entry.name)),
-  )
 
   const publishPlan = await readPublishPlan(ctx, cwd)
   const actual = new Set(publishPlan.map(entry => `${entry.kind} ${entry.name}@${entry.version}`))
@@ -591,6 +602,7 @@ async function previewRelease(ctx: Context, workspace: Workspace) {
         getTagged(versioned.releases),
         tree,
       )
+      await assertNpmPermissions(ctx, workspace, versioned.releases)
       // The node_modules symlink is not ignored by a `node_modules/` pattern, which matches only directories.
       await readCommand(ctx, "git", ["add", "--all"], { cwd: tree })
       await readCommand(ctx, "git", ["reset", "--quiet", "--", "node_modules"], { cwd: tree })
@@ -768,6 +780,9 @@ async function finishRelease(
         }
       }
       await assertPublishable(ctx, workspace, expectedPublication, ctx.cwd)
+      if (resumed) {
+        await assertNpmPermissions(ctx, workspace, unpublished)
+      }
     }
 
     // Pushing before the irreversible publication makes sure the published commit is on the remote.

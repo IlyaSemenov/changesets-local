@@ -31,6 +31,7 @@ Do not catalog files or restate information evident from their names and locatio
 - Decide that a release is complete only after `inspectRelease` has verified that its tags point to the release commit.
 - Push the release commit before publishing to npm, so that a published version always has its commit on the remote.
 - Run `assertPublishable` right before every `changeset publish`, not only before the confirmation: Git hooks and `--resume` can change what is published.
+- Check npm publish permissions once per run: before the confirmation, or before the push in `--resume`.
 - Before the release commit, restore the working tree on any failure, unless the user forces an immediate exit with a second Ctrl+C; after a release commit that matches the confirmed release, point the user to `--resume`. A release commit that does not match must be undone, not resumed.
 - Never treat missing evidence of a publication as proof that nothing was published; abandoning an incomplete release requires the user's confirmation.
 - Run subprocesses that ask for input or take long, such as `changeset publish` and `release:check`, through `runCommand`, which shares the terminal in the CLI.

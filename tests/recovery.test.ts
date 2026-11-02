@@ -47,6 +47,22 @@ describe("failure after the release commit", () => {
     await resume(fixture)
   })
 
+  it("checks npm permissions again on resume", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.npm.versions[packageName] = ["1.0.0"]
+    })
+    fixture.rejectPushes("refs/heads/*")
+    await runInterrupted(fixture, "`git push origin")
+    fixture.rejectPushes(null)
+    fixture.updateState(state => {
+      state.npm.maintainers[packageName] = ["owner"]
+    })
+    const result = await fixture.run({ resume: true })
+    expect(result.error?.message).toContain(`npm user tester cannot publish ${packageName}.`)
+    expect(fixture.remoteGit("log", "-1", "--format=%s", "main")).toBe("Initial commit")
+  })
+
   it("resumes when npm publication fails", async () => {
     const fixture = createFixture()
     fixture.updateState(state => {

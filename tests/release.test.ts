@@ -20,6 +20,7 @@ describe("release", () => {
       { tool: "npm", name: packageName, version: "1.0.1", tag: "latest", provenance: "false" },
     ])
     expect(fixture.state().gh.releases[0]!.prerelease).toBe(false)
+    expect(fixture.calls("npm").filter(([command]) => command === "access")).toHaveLength(1)
   })
 
   it.each([
