@@ -9,14 +9,6 @@ Read [README.md](README.md) completely before changing the command-line interfac
 Extend this guide only with stable, non-obvious conventions, architecture, contracts, workflows, and gotchas.
 Do not catalog files or restate information evident from their names and locations.
 
-## Release status
-
-The package is at version 0.0.0 and has no users; remove this section with the initial release.
-
-- Judge a change only by the contract it produces.
-  Do not compare behavior with previous revisions, call changes breaking, or add compatibility paths, migration notes, or deprecations.
-- Do not add changesets: the pending initial release covers every change.
-
 ## Scope
 
 - Keep production code in `src/`.
@@ -93,8 +85,7 @@ The package is at version 0.0.0 and has no users; remove this section with the i
 
 - Add one `.changeset/*.md` file for each independently releasable user-visible change.
 - Do not add changesets for internal refactors, maintenance, tests, or documentation changes that do not require a package release.
-- Choose the SemVer bump from the public contract: `patch` for backward-compatible fixes and `minor` for backward-compatible functionality.
-- Before 1.0, use `minor` for breaking changes; starting with 1.0, use `major` and remove this rule.
+- Choose the SemVer bump from the public contract: `patch` for backward-compatible fixes, `minor` for backward-compatible functionality, and `major` for breaking changes.
 - Create `.changeset/<unique-name>.md` with this format:
 
 ```markdown
