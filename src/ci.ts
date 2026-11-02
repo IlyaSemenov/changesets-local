@@ -10,11 +10,17 @@ import {
   logWarning,
   ReleaseError,
 } from "./context"
+import { getCommitFiles } from "./git"
 import { type CommitCheck, listCommitChecks } from "./github"
+
+/** Poll intervals after the first read in which GitHub may still be creating the check runs of a just pushed commit. */
+const checkCreationPolls = 2
 
 /** A commit whose CI must be checked again before the release confirmation. */
 export interface PendingChecks {
   commit: string
+  /** Time of the first read of the checks, in milliseconds since the epoch. */
+  readAt: number
 }
 
 /**
@@ -27,6 +33,7 @@ export async function confirmFailedChecks(
   repo: string,
   commit: string,
 ): Promise<PendingChecks | null> {
+  const readAt = Date.now()
   const checks = await listCommitChecks(ctx, repo, commit)
   if (hasFailures(checks)) {
     await confirmRelease(ctx, commit, checks)
@@ -38,23 +45,41 @@ export async function confirmFailedChecks(
       `CI is running on ${commit.slice(0, 7)}: ${formatCheckNames(checks, "pending")}.`,
     )
   }
-  return { commit }
+  return { commit, readAt }
 }
 
 /**
  * Waits until the CI checks of a commit finish or one fails, and asks whether to release the commit when one fails.
  *
  * Does not wait for checks awaiting approval, such as a deployment to a protected environment.
+ * When the commit has GitHub Actions workflows but no checks, reads them again once GitHub has had time to create them.
  */
 export async function awaitChecks(ctx: Context, repo: string, pending: PendingChecks) {
   const { commit } = pending
   const short = commit.slice(0, 7)
+  let waiting = false
+  const startWaiting = () => {
+    if (!waiting) {
+      logStep(ctx, `Waiting for CI on ${short}`)
+      waiting = true
+    }
+  }
   let checks = await listCommitChecks(ctx, repo, commit)
+  if (checks.length === 0 && (await getCommitFiles(ctx, commit).exists(".github/workflows"))) {
+    const remaining = pending.readAt + checkCreationPolls * ctx.pollInterval - Date.now()
+    if (remaining > 0) {
+      startWaiting()
+      logDetail(ctx, "Waiting for GitHub to create the checks")
+      await delay(ctx, remaining)
+    }
+    checks = await listCommitChecks(ctx, repo, commit)
+    if (waiting && checks.length === 0) {
+      logDetail(ctx, `No CI checks on ${short}`)
+    }
+  }
   let running = ""
   while (isRunning(checks)) {
-    if (!running) {
-      logStep(ctx, `Waiting for CI on ${short}`)
-    }
+    startWaiting()
     const names = formatCheckNames(checks, "pending")
     if (names !== running) {
       logDetail(ctx, `Running: ${names}`)

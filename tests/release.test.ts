@@ -181,6 +181,14 @@ describe("CI checks", () => {
     return head.slice(0, 7)
   }
 
+  /** Commits and pushes a GitHub Actions workflow. */
+  function pushWorkflow(fixture: Fixture) {
+    fixture.write(".github/workflows/test.yml", "on: push\n")
+    fixture.git("add", "--all")
+    fixture.git("commit", "--quiet", "--message", "Add CI")
+    fixture.git("push", "--quiet")
+  }
+
   it("waits for running checks of the released commit after release:check", async () => {
     const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
     const short = setChecks(fixture, {
@@ -211,6 +219,28 @@ describe("CI checks", () => {
     expect(result.error?.message).toBe("Release cancelled.")
     expect(result.questions).toEqual(["Release despite the failed CI?"])
     expect(result.output).toContain("▸ Versioning")
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+  })
+
+  it("reads the checks again when the commit has workflows but GitHub has not created its checks yet", async () => {
+    const fixture = createFixture()
+    pushWorkflow(fixture)
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 2 }] })
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.questions).toEqual(["Release despite the failed CI?"])
+  })
+
+  it("waits for GitHub to create the checks before reading them again", async () => {
+    const fixture = createFixture()
+    pushWorkflow(fixture)
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 2 }] })
+    const result = await fixture.run({}, { abortOnLog: "Waiting for GitHub to create the checks" })
+    expect(result.error?.message).toBe("Interrupted.")
+    expect(result.questions).toEqual([])
+    expect(
+      fixture.calls("gh").filter(([, , endpoint]) => endpoint?.includes("/check-runs")),
+    ).toHaveLength(2)
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
   })
 
