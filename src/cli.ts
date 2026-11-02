@@ -14,7 +14,7 @@ version them, publish them to npm, push the release commit and tags, and create 
 
 Options:
   --dry-run      Show what a release would do without changing anything
-  --resume       Finish the newest release
+  --resume       Finish an interrupted release
   -h, --help     Show this help
   -v, --version  Show the changesets-local version`
 
