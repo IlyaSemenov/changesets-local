@@ -94,6 +94,8 @@ After you confirm, it runs the steps in this order.
 When npm asks for a one-time password or browser authentication, complete it in the terminal.
 
 If you decline, or versioning or `release:check` fails, changesets-local restores the working tree and nothing is committed.
+Ctrl+C before the release commit does the same; after it, the release stops, and you [finish it](#finish-an-interrupted-release) with `--resume`.
+Press Ctrl+C again to exit at once without any cleanup.
 
 To preview a release without changing anything, run:
 

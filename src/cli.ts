@@ -42,24 +42,39 @@ async function main() {
   }
 
   // Ctrl+C reaches subprocesses sharing the terminal; the release then fails and cleans up instead of exiting midway.
+  // A second Ctrl+C exits at once, for a subprocess that does not stop.
   const controller = new AbortController()
-  process.on("SIGINT", () => controller.abort())
+  const interrupt = () => {
+    if (controller.signal.aborted) {
+      console.error(`\n${styleText("red", "✘")} Exited without cleanup; check \`git status\`.`)
+      process.exit(130)
+    }
+    controller.abort()
+  }
+  process.on("SIGINT", interrupt)
   const ctx: Context = {
     cwd: process.cwd(),
     env: process.env,
     interactive: true,
     signal: controller.signal,
     log: line => console.log(line),
-    confirm: askConfirmation,
+    confirm: question => askConfirmation(question, interrupt),
   }
   await release(ctx, { dryRun: values["dry-run"], resume: values.resume })
 }
 
-/** Asks a yes/no question in the terminal; Ctrl+C answers no. */
-async function askConfirmation(question: string) {
+/**
+ * Asks a yes/no question in the terminal.
+ *
+ * Ctrl+C answers no and calls `interrupt`: the terminal sends it to readline instead of the process.
+ */
+async function askConfirmation(question: string, interrupt: () => void) {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const controller = new AbortController()
-  rl.on("SIGINT", () => controller.abort())
+  rl.on("SIGINT", () => {
+    controller.abort()
+    interrupt()
+  })
   try {
     const answer = await rl.question(`\n${styleText("bold", question)} [y/N] `, {
       signal: controller.signal,
