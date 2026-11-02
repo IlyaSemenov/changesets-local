@@ -41,7 +41,11 @@ export async function confirmFailedChecks(
   return { commit }
 }
 
-/** Waits until the CI checks of a commit finish or one fails, and asks whether to release the commit when one fails. */
+/**
+ * Waits until the CI checks of a commit finish or one fails, and asks whether to release the commit when one fails.
+ *
+ * Does not wait for checks awaiting approval, such as a deployment to a protected environment.
+ */
 export async function awaitChecks(ctx: Context, repo: string, pending: PendingChecks) {
   const { commit } = pending
   const short = commit.slice(0, 7)
@@ -61,7 +65,10 @@ export async function awaitChecks(ctx: Context, repo: string, pending: PendingCh
   }
   if (hasFailures(checks)) {
     await confirmRelease(ctx, commit, checks)
-  } else if (checks.length > 0) {
+    return
+  }
+  warnAboutApprovals(ctx, commit, checks)
+  if (checks.some(check => check.state === "success")) {
     logDone(ctx, `CI passed on ${short}`)
   }
 }
@@ -72,12 +79,15 @@ export async function previewChecks(ctx: Context, repo: string, commit: string) 
   const checks = await listCommitChecks(ctx, repo, commit)
   if (hasFailures(checks)) {
     logWarning(ctx, formatFailures(commit, checks))
-  } else if (isRunning(checks)) {
+    return
+  }
+  warnAboutApprovals(ctx, commit, checks)
+  if (isRunning(checks)) {
     logWarning(
       ctx,
       `CI is running on ${short}: ${formatCheckNames(checks, "pending")}. A release waits for it before the confirmation.`,
     )
-  } else if (checks.length > 0) {
+  } else if (checks.some(check => check.state === "success")) {
     logDone(ctx, `CI passed on ${short}`)
   }
 }
@@ -87,6 +97,16 @@ async function confirmRelease(ctx: Context, commit: string, checks: CommitCheck[
   logWarning(ctx, formatFailures(commit, checks))
   if (!(await ctx.confirm("Release despite the failed CI?"))) {
     throw new ReleaseError("Release cancelled.")
+  }
+}
+
+function warnAboutApprovals(ctx: Context, commit: string, checks: CommitCheck[]) {
+  const names = formatCheckNames(checks, "waiting")
+  if (names) {
+    logWarning(
+      ctx,
+      `Not waiting for CI checks on ${commit.slice(0, 7)} that require approval: ${names}.`,
+    )
   }
 }
 

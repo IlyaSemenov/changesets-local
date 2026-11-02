@@ -97,7 +97,8 @@ export function createGitHubRelease(
 /** A CI check of a commit: a check run, such as a GitHub Actions job, or a commit status. */
 export interface CommitCheck {
   name: string
-  state: "pending" | "success" | "failure"
+  /** `waiting` is a check run awaiting approval, such as a deployment to a protected environment. */
+  state: "pending" | "waiting" | "success" | "failure"
   /** Page with the check details, if GitHub has one. */
   url: string | null
 }
@@ -149,6 +150,9 @@ export async function listCommitChecks(
 }
 
 function getCheckRunState(status: string, conclusion: string | null): CommitCheck["state"] {
+  if (status === "waiting") {
+    return "waiting"
+  }
   if (status !== "completed") {
     return "pending"
   }

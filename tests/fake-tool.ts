@@ -50,10 +50,19 @@ export interface FakeState {
     }>
     /** Makes release creation fail. */
     createFailure: boolean
-    /** CI check runs by commit; a run is omitted for `missingReads` reads, then reports `in_progress` for `pendingReads` reads. */
+    /**
+     * CI check runs by commit.
+     * A run is omitted for `missingReads` reads, then reports `in_progress` for `pendingReads` reads; with `waiting`, it is always awaiting approval.
+     */
     checkRuns: Record<
       string,
-      Array<{ name: string; conclusion: string; missingReads?: number; pendingReads?: number }>
+      Array<{
+        name: string
+        conclusion: string
+        missingReads?: number
+        pendingReads?: number
+        waiting?: boolean
+      }>
     >
     /** Commit statuses by commit; a status reports `pending` for `pendingReads` reads. */
     statuses: Record<string, Array<{ context: string; state: string; pendingReads?: number }>>
@@ -256,10 +265,10 @@ if (import.meta.main) {
               run.missingReads! -= 1
               continue
             }
-            const pending = (run.pendingReads ?? 0) > 0
+            const pending = run.waiting || (run.pendingReads ?? 0) > 0
             items.push({
               name: run.name,
-              status: pending ? "in_progress" : "completed",
+              status: run.waiting ? "waiting" : pending ? "in_progress" : "completed",
               conclusion: pending ? null : run.conclusion,
               html_url: `https://github.com/${current.gh.repo}/runs/${run.name}`,
             })

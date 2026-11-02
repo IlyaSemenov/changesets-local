@@ -158,6 +158,7 @@ Build packages in their `prepack` or `prepublishOnly` scripts: npm runs them on 
 
 Before asking to confirm a new release, changesets-local waits for the GitHub checks of the commit you release, such as GitHub Actions jobs and commit statuses.
 It prepares the release while they run.
+It does not wait for checks awaiting approval, such as a deployment to a protected environment.
 
 If a check fails, changesets-local lists the failed checks with their links and asks whether to release anyway; the default answer is no.
 

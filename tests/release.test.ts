@@ -214,6 +214,23 @@ describe("CI checks", () => {
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
   })
 
+  it("does not wait for checks awaiting approval", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, {
+      runs: [
+        { name: "test", conclusion: "success" },
+        { name: "deploy", conclusion: "success", waiting: true },
+      ],
+    })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      `⚠ Not waiting for CI checks on ${short} that require approval: deploy.\n✔ CI passed on ${short}`,
+    )
+    expect(result.output).not.toContain("Waiting for CI")
+    expectReleased(fixture, "1.0.1")
+  })
+
   it("asks about failed checks only when there is something to release", async () => {
     const fixture = createFixture({ changesets: {} })
     setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
