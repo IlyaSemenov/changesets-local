@@ -30,6 +30,11 @@ export class ReleaseError extends Error {
   override name = "ReleaseError"
 }
 
+/** Formats items as an indented bulleted list for output. */
+export function formatList(items: string[]) {
+  return items.map(item => `  - ${item}`).join("\n")
+}
+
 /** Prints the heading of a release step. */
 export function logStep(ctx: Context, text: string) {
   ctx.log(styleText("bold", `\n▸ ${text}`))

@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, realpath, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { setTimeout as sleep } from "node:timers/promises"
 import { styleText } from "node:util"
 
 import { extractChangelogEntry } from "./changelog"
@@ -14,7 +13,16 @@ import {
   type PublishPlanEntry,
   readPublishPlan,
 } from "./changesets"
-import { type Context, logDetail, logDone, logStep, logWarning, ReleaseError } from "./context"
+import { awaitChecks, confirmFailedChecks, type PendingChecks, previewChecks } from "./ci"
+import {
+  type Context,
+  formatList,
+  logDetail,
+  logDone,
+  logStep,
+  logWarning,
+  ReleaseError,
+} from "./context"
 import { readCommand, runCommand } from "./exec"
 import {
   createTag,
@@ -39,11 +47,9 @@ import {
   type Upstream,
 } from "./git"
 import {
-  type CommitCheck,
   createGitHubRelease,
   getGitHubReleaseState,
   type GitHubReleaseState,
-  listCommitChecks,
   resolveGitHubRepo,
 } from "./github"
 import {
@@ -230,17 +236,17 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
   const head = (await resolveCommit(ctx, "HEAD"))!
   if (options.dryRun) {
     if (workspace.branch === workspace.project.baseBranch && !syncProblem) {
-      await previewChecks(ctx, workspace, head)
+      await previewChecks(ctx, workspace.repo, head)
     }
     await previewRelease(ctx, workspace)
     return
   }
-  // Asks about already failed checks before versioning, and rechecks CI after release:check unless the user accepted failed CI.
-  const failedChecksAccepted = await confirmChecks(ctx, workspace, head, { wait: false })
+  // Asks about already failed checks before versioning; the others are awaited after release:check.
+  const pendingChecks = await confirmFailedChecks(ctx, workspace.repo, head)
   const plan = await planPendingRelease(ctx, ctx.cwd)
 
   const { commit, subject, releases } = await createReleaseCommit(ctx, workspace, plan, {
-    awaitChecks: failedChecksAccepted ? null : head,
+    pendingChecks,
   })
   await finishRelease(
     ctx,
@@ -290,86 +296,6 @@ async function describeSyncProblem(ctx: Context, workspace: Workspace) {
     return `${branch} has commits that are not pushed to ${upstream.name}. Push them first.`
   }
   return `${branch} and ${upstream.name} have diverged. Reconcile them first.`
-}
-
-/**
- * Asks whether to release a commit whose CI checks have failed, and fails when the user declines.
- *
- * With `wait`, waits until every check finishes or one fails; without it, only asks about checks that have already failed.
- * Returns whether the user accepted failed checks.
- */
-async function confirmChecks(
-  ctx: Context,
-  workspace: Workspace,
-  commit: string,
-  options: { wait: boolean },
-) {
-  const short = commit.slice(0, 7)
-  let checks = await listCommitChecks(ctx, workspace.repo, commit)
-  if (options.wait && isRunning(checks)) {
-    logStep(ctx, `Waiting for CI on ${short}`)
-    logDetail(ctx, formatCheckNames(checks, "pending"))
-    while (isRunning(checks)) {
-      try {
-        await sleep(ctx.pollInterval, undefined, { signal: ctx.signal })
-      } catch (error) {
-        throw (error as Error).name === "AbortError" ? new ReleaseError("Interrupted.") : error
-      }
-      checks = await listCommitChecks(ctx, workspace.repo, commit)
-    }
-  }
-  const failed = checks.filter(check => check.state === "failure")
-  if (failed.length > 0) {
-    logWarning(ctx, `CI failed on ${short}:\n${formatList(failed.map(formatCheck))}`)
-    if (!(await ctx.confirm("Release despite the failed CI?"))) {
-      throw new ReleaseError("Release cancelled.")
-    }
-    return true
-  }
-  if (!options.wait) {
-    if (isRunning(checks)) {
-      logDetail(ctx, `CI is running on ${short}: ${formatCheckNames(checks, "pending")}.`)
-    }
-  } else if (checks.length > 0) {
-    logDone(ctx, `CI passed on ${short}`)
-  }
-  return false
-}
-
-/** Shows the CI state of a commit in a dry run, warning about failed or running checks. */
-async function previewChecks(ctx: Context, workspace: Workspace, commit: string) {
-  const short = commit.slice(0, 7)
-  const checks = await listCommitChecks(ctx, workspace.repo, commit)
-  const failed = checks.filter(check => check.state === "failure")
-  if (failed.length > 0) {
-    logWarning(ctx, `CI failed on ${short}:\n${formatList(failed.map(formatCheck))}`)
-  } else if (checks.some(check => check.state === "pending")) {
-    logWarning(
-      ctx,
-      `CI is running on ${short}: ${formatCheckNames(checks, "pending")}. A release waits for it before the confirmation.`,
-    )
-  } else if (checks.length > 0) {
-    logDone(ctx, `CI passed on ${short}`)
-  }
-}
-
-/** Returns whether some checks are running and none has failed: a failure settles the CI without waiting for the rest. */
-function isRunning(checks: CommitCheck[]) {
-  return (
-    checks.some(check => check.state === "pending") &&
-    !checks.some(check => check.state === "failure")
-  )
-}
-
-function formatCheckNames(checks: CommitCheck[], state: CommitCheck["state"]) {
-  return checks
-    .filter(check => check.state === state)
-    .map(check => check.name)
-    .join(", ")
-}
-
-function formatCheck(check: CommitCheck) {
-  return check.url ? `${check.name}: ${check.url}` : check.name
 }
 
 /**
@@ -454,14 +380,14 @@ async function assertUnreleased(
 /**
  * Versions the packages in the working tree, runs `release:check`, and commits the result after confirmation.
  *
- * With `awaitChecks`, waits for the CI checks of that commit before the confirmation; checks can appear while versioning and release:check run.
+ * With `pendingChecks`, waits for the CI checks before the confirmation; checks can appear while versioning and release:check run.
  * Restores the working tree when anything fails before the commit.
  */
 async function createReleaseCommit(
   ctx: Context,
   workspace: Workspace,
   plan: PlannedRelease[],
-  options: { awaitChecks: string | null },
+  options: { pendingChecks: PendingChecks | null },
 ) {
   const { project } = workspace
   const subject = formatReleaseSubject(
@@ -480,8 +406,8 @@ async function createReleaseCommit(
     if (project.hasReleaseCheck) {
       await runReleaseCheck(ctx, workspace)
     }
-    if (options.awaitChecks) {
-      await confirmChecks(ctx, workspace, options.awaitChecks, { wait: true })
+    if (options.pendingChecks) {
+      await awaitChecks(ctx, workspace.repo, options.pendingChecks)
     }
 
     await stageWorkTree(ctx)
@@ -1088,10 +1014,6 @@ function describeReleases(releases: PackageRelease[]) {
 /** Formats package versions as `a@1.0.0, b@2.0.0` in their given order. */
 function formatVersions(packages: Array<{ name: string; version: string }>) {
   return packages.map(entry => `${entry.name}@${entry.version}`).join(", ")
-}
-
-function formatList(items: string[]) {
-  return items.map(item => `  - ${item}`).join("\n")
 }
 
 function indent(text: string, width: number) {
