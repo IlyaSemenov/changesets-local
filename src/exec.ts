@@ -126,7 +126,8 @@ function spawnCommand(
   })
 }
 
-function describeFailure(command: string, args: string[], result: CommandResult) {
+/** Describes a failed command with the last lines of its error output, or of its standard output when it printed no errors. */
+export function describeFailure(command: string, args: string[], result: CommandResult) {
   const status = result.code === null ? "was interrupted" : `failed with exit code ${result.code}`
   const output = (result.stderr.trim() || result.stdout.trim()).split("\n").slice(-20).join("\n")
   return `\`${formatCommand(command, args)}\` ${status}.${output ? `\n${output}` : ""}`

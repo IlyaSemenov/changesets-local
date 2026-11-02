@@ -2,8 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { type Context, ReleaseError } from "./context"
-import { readCommand, runCommand, runCommandWithStatus } from "./exec"
+import { type Context, logDetail, ReleaseError } from "./context"
+import {
+  captureCommand,
+  describeFailure,
+  formatCommand,
+  readCommand,
+  runCommandWithStatus,
+} from "./exec"
 import { readJsonFile } from "./json"
 import { sortByName } from "./packages"
 
@@ -83,9 +89,34 @@ export async function readPublishPlan(ctx: Context, cwd = ctx.cwd): Promise<Publ
   return plan.plan.flat().map(({ kind, name, version, tag }) => ({ kind, name, version, tag }))
 }
 
-/** Applies pending changesets: bumps versions and updates changelogs. */
-export function applyChangesets(ctx: Context, cwd = ctx.cwd) {
-  return runCommand(ctx, changesetBin, ["version"], { cwd })
+/**
+ * Applies pending changesets: bumps versions and updates changelogs.
+ *
+ * Prints the output of Changesets, such as configuration warnings, without the lines that do not apply to a release by changesets-local.
+ */
+export async function applyChangesets(ctx: Context, cwd = ctx.cwd) {
+  const args = ["version"]
+  logDetail(ctx, `$ ${formatCommand(changesetBin, args)}`)
+  const result = await captureCommand(ctx, changesetBin, args, { cwd })
+  if (result.code !== 0) {
+    throw new ReleaseError(describeFailure(changesetBin, args, result))
+  }
+  const output = filterVersionOutput(`${result.stdout}\n${result.stderr}`)
+  if (output) {
+    ctx.log(output)
+  }
+}
+
+/** Lines of `changeset version` output that changesets-local leaves out: the Changesets banner, and the advice to review and commit the changes, which changesets-local does itself. */
+const versionNoise = [/^\S*\s*changeset v\d/, /Review them and commit at your leisure/]
+
+/** Removes the Changesets banner and commit advice from `changeset version` output, preserving other output. */
+export function filterVersionOutput(output: string) {
+  return output
+    .split("\n")
+    .filter(line => !versionNoise.some(pattern => pattern.test(line)))
+    .join("\n")
+    .trim()
 }
 
 /**

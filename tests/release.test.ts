@@ -65,6 +65,14 @@ describe("release", () => {
     expect(fixture.state().npm.versions[name]).toEqual(["1.0.1"])
   })
 
+  it("shows the warnings of Changesets without its advice to commit", async () => {
+    const fixture = createFixture({ changesetsConfig: { fixed: [["nonexistent-*"]] } })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain("Found issues in your config:")
+    expect(result.output).not.toContain("commit at your leisure")
+  })
+
   it("leaves no trace when the confirmation is declined", async () => {
     const fixture = createFixture()
     const head = fixture.git("rev-parse", "HEAD")

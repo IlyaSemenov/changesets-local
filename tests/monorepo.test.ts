@@ -156,7 +156,7 @@ describe("monorepo release", () => {
     expect(result.output).toContain(subject)
     expect(result.output).toContain("alpha 1.0.0 → 1.1.0 (minor)")
     expect(result.output).toMatch(
-      /alpha@1\.1\.0\n {4}### Minor Changes\n\n {4}- \w+: Add a feature\./,
+      /alpha@1\.1\.0\n {4}### Minor Changes\n\n {4}- \w+: Add a feature\.\n\nChanges:/,
     )
     expect(result.output).toContain(
       "Create GitHub Releases in owner/fixture: @fixture/beta@1.0.1, alpha@1.1.0",

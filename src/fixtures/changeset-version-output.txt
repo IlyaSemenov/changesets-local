@@ -1,0 +1,6 @@
+🦋 changeset v3.0.3
+
+Found issues in your config:
+- fixed: Invalid path: The package or glob "nonexistent-*" does not match any package in the project. Note that glob expressions must be defined according to https://npmx.dev/picomatch.
+
+All files have been updated. Review them and commit at your leisure

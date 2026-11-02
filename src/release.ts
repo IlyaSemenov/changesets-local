@@ -903,14 +903,16 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
       .join("\n"),
   )
   ctx.log(`\n${styleText("bold", "Release notes:")}`)
-  for (const entry of releases) {
-    const notes = summary.notes.get(entry.name)!
-    ctx.log(
-      project.monorepo
-        ? `  ${styleText("bold", `${entry.name}@${entry.version}`)}\n${indent(notes, 4)}\n`
-        : indent(notes, 2),
-    )
-  }
+  ctx.log(
+    releases
+      .map(entry => {
+        const notes = summary.notes.get(entry.name)!
+        return project.monorepo
+          ? `  ${styleText("bold", `${entry.name}@${entry.version}`)}\n${indent(notes, 4)}`
+          : indent(notes, 2)
+      })
+      .join("\n\n"),
+  )
   ctx.log(`\n${styleText("bold", "Changes:")}\n${indent(summary.diffStat, 2)}`)
   ctx.log(`\n${styleText("bold", "Steps:")}`)
   ctx.log(
