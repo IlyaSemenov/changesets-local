@@ -56,6 +56,7 @@ async function main() {
     cwd: process.cwd(),
     env: process.env,
     interactive: true,
+    pollInterval: 10_000,
     signal: controller.signal,
     log: line => console.log(line),
     confirm: question => askConfirmation(question, interrupt),

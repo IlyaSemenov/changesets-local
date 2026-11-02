@@ -15,7 +15,9 @@ export interface Context {
    * When false, their output is captured and reported only on failure.
    */
   interactive: boolean
-  /** Aborts the release before the next subprocess starts. */
+  /** Milliseconds between reads of a state that changes remotely, such as running CI checks. */
+  pollInterval: number
+  /** Aborts the release before the next subprocess starts, or while it waits. */
   signal?: AbortSignal
   /** Prints a line of output. */
   log: (line: string) => void

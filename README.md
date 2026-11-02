@@ -68,7 +68,7 @@ When you want to release, commit your changes, check out the base branch from `.
 npx changesets-local
 ```
 
-changesets-local versions the packages, runs [`release:check`](#check-the-release-before-publishing), and shows the release before asking for confirmation:
+changesets-local versions the packages, runs [`release:check`](#check-the-release-before-publishing), [waits for CI](#wait-for-ci), and shows the release before asking for confirmation:
 
 ```text
 Release my-package@1.5.0
@@ -115,6 +115,7 @@ npx changesets-local --dry-run
 
 The dry run checks the repository and logins and shows the release notes, changed files, and steps, but does not update the lockfile or run `release:check`.
 It previews the release of the last commit and warns when the working tree has uncommitted changes, another branch is checked out, or the base branch is not in sync with its remote branch.
+When you are on the base branch and it is in sync with its remote branch, it also warns when CI on the commit has failed or is still running.
 
 ### Monorepos
 
@@ -152,6 +153,13 @@ The release stops if it fails.
 It must not change tracked files; add files it generates, such as `dist`, to `.gitignore`.
 
 Build packages in their `prepack` or `prepublishOnly` scripts: npm runs them on every publication, including one that finishes an interrupted release from a fresh checkout.
+
+## Wait for CI
+
+Before asking to confirm a new release, changesets-local waits for the GitHub checks of the commit you release, such as GitHub Actions jobs and commit statuses.
+It prepares the release while they run.
+
+If a check fails, changesets-local lists the failed checks with their links and asks whether to release anyway; the default answer is no.
 
 ## Finish an interrupted release
 

@@ -93,3 +93,78 @@ export function createGitHubRelease(
   }
   return runCommand(ctx, "gh", args, { input: release.notes })
 }
+
+/** A CI check of a commit: a check run, such as a GitHub Actions job, or a commit status. */
+export interface CommitCheck {
+  name: string
+  state: "pending" | "success" | "failure"
+  /** Page with the check details, if GitHub has one. */
+  url: string | null
+}
+
+/** Check run conclusions that do not block a release; branch protection accepts them too. */
+const passingConclusions = new Set(["success", "neutral", "skipped"])
+
+/**
+ * Lists the latest check runs and commit statuses of a commit.
+ *
+ * A completed check run passes with a conclusion that branch protection accepts and fails with any other, such as `cancelled` or `timed_out`.
+ */
+export async function listCommitChecks(
+  ctx: Context,
+  repo: string,
+  commit: string,
+): Promise<CommitCheck[]> {
+  const runs = await readJsonLines<{
+    name: string
+    status: string
+    conclusion: string | null
+    html_url: string | null
+  }>(
+    ctx,
+    `repos/${repo}/commits/${commit}/check-runs?per_page=100`,
+    ".check_runs[] | {name, status, conclusion, html_url}",
+  )
+  const statuses = await readJsonLines<{
+    context: string
+    state: string
+    target_url: string | null
+  }>(
+    ctx,
+    `repos/${repo}/commits/${commit}/status?per_page=100`,
+    ".statuses[] | {context, state, target_url}",
+  )
+  return [
+    ...runs.map(run => ({
+      name: run.name,
+      state: getCheckRunState(run.status, run.conclusion),
+      url: run.html_url,
+    })),
+    ...statuses.map(status => ({
+      name: status.context,
+      state: getStatusState(status.state),
+      url: status.target_url || null,
+    })),
+  ]
+}
+
+function getCheckRunState(status: string, conclusion: string | null): CommitCheck["state"] {
+  if (status !== "completed") {
+    return "pending"
+  }
+  return conclusion !== null && passingConclusions.has(conclusion) ? "success" : "failure"
+}
+
+/** Maps a commit status state, which is `error` or `failure` when it fails. */
+function getStatusState(state: string): CommitCheck["state"] {
+  return state === "pending" || state === "success" ? state : "failure"
+}
+
+/** Reads every page of a GitHub REST API list and returns the items that a jq filter selects. */
+async function readJsonLines<T>(ctx: Context, endpoint: string, filter: string) {
+  const output = await readCommand(ctx, "gh", ["api", "--paginate", endpoint, "--jq", filter])
+  return output
+    .split("\n")
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as T)
+}

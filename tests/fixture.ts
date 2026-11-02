@@ -68,11 +68,11 @@ export interface Fixture {
   env: NodeJS.ProcessEnv
   /**
    * Runs a release, answering confirmation questions with `confirm`.
-   * With `abort`, aborts the context signal when asked for confirmation, as Ctrl+C does.
+   * With `abort`, aborts the context signal when asked for confirmation, as Ctrl+C does; with `abortOnLog`, when a printed line contains that text.
    */
   run: (
     options?: ReleaseOptions,
-    answers?: { confirm?: boolean; abort?: boolean },
+    answers?: { confirm?: boolean; abort?: boolean; abortOnLog?: string },
   ) => Promise<RunResult>
   /** Runs Git in the project and returns its trimmed output. */
   git: (...args: string[]) => string
@@ -299,9 +299,17 @@ export function createFixture(options: FixtureOptions = {}): Fixture {
         cwd: dir,
         env,
         interactive: false,
+        // Long enough that only an abort ends a wait that the test does not let finish.
+        pollInterval: answers.abortOnLog ? 60_000 : 0,
         signal: controller.signal,
         // The CLI styles its output when the tests run in a terminal.
-        log: line => lines.push(stripVTControlCharacters(line)),
+        log: line => {
+          lines.push(stripVTControlCharacters(line))
+          if (answers.abortOnLog && line.includes(answers.abortOnLog)) {
+            // After the synchronous code that follows the line, such as starting a wait.
+            queueMicrotask(() => controller.abort())
+          }
+        },
         confirm: async question => {
           questions.push(question)
           if (answers.abort) {

@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
-import { changeset, createFixture, expectReleased, packageName } from "./fixture"
+import type { FakeState } from "./fake-tool"
+import { changeset, createFixture, expectReleased, type Fixture, packageName } from "./fixture"
 
 describe("release", () => {
   it("releases a patch version", async () => {
@@ -160,6 +161,147 @@ describe("release:check", () => {
     const result = await fixture.run()
     expect(result.error?.message).toContain("release:check changed files:\n  - generated.txt")
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+  })
+})
+
+describe("CI checks", () => {
+  /** Sets the CI check runs and commit statuses of the fixture HEAD and returns its abbreviated hash. */
+  function setChecks(
+    fixture: Fixture,
+    checks: {
+      runs?: FakeState["gh"]["checkRuns"][string]
+      statuses?: FakeState["gh"]["statuses"][string]
+    },
+  ) {
+    const head = fixture.git("rev-parse", "HEAD")
+    fixture.updateState(state => {
+      state.gh.checkRuns[head] = checks.runs ?? []
+      state.gh.statuses[head] = checks.statuses ?? []
+    })
+    return head.slice(0, 7)
+  }
+
+  it("waits for running checks of the released commit after release:check", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
+    const short = setChecks(fixture, {
+      runs: [
+        { name: "test", conclusion: "success", pendingReads: 3 },
+        { name: "deploy", conclusion: "skipped" },
+      ],
+      statuses: [{ context: "ci/external", state: "success", pendingReads: 1 }],
+    })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
+    expect(result.output).toContain(`CI is running on ${short}: test, ci/external.`)
+    expect(result.output).toContain(`▸ Waiting for CI on ${short}\ntest`)
+    expect(result.output).toContain(`✔ CI passed on ${short}`)
+    expect(result.output.indexOf("release:check")).toBeLessThan(
+      result.output.indexOf("Waiting for CI"),
+    )
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("asks about a check that appears and fails while the release is prepared", async () => {
+    const fixture = createFixture()
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 1 }] })
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.output).toContain("▸ Versioning")
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+  })
+
+  it("asks before versioning when a check has failed", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, {
+      runs: [
+        { name: "test", conclusion: "cancelled" },
+        { name: "lint", conclusion: "success", pendingReads: 1 },
+      ],
+      statuses: [{ context: "ci/external", state: "error" }],
+    })
+    const head = fixture.git("rev-parse", "HEAD")
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.output).toContain(
+      `⚠ CI failed on ${short}:\n  - test: https://github.com/owner/fixture/runs/test\n  - ci/external`,
+    )
+    expect(result.output).not.toContain("▸ Versioning")
+    expect(fixture.git("rev-parse", "HEAD")).toBe(head)
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
+  it("stops waiting when a running check fails and restores the working tree when declined", async () => {
+    const fixture = createFixture()
+    setChecks(fixture, {
+      runs: [
+        { name: "test", conclusion: "failure", pendingReads: 2 },
+        { name: "slow", conclusion: "success", pendingReads: 1000 },
+      ],
+    })
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.output).toContain("▸ Versioning")
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+  })
+
+  it("restores the working tree after Ctrl+C while waiting", async () => {
+    const fixture = createFixture()
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "success", pendingReads: 1000 }] })
+    const result = await fixture.run({}, { abortOnLog: "Waiting for CI" })
+    expect(result.error?.message).toBe("Interrupted.")
+    expect(result.questions).toEqual([])
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
+  it("releases despite failed checks when confirmed", async () => {
+    const fixture = createFixture()
+    setChecks(fixture, { statuses: [{ context: "ci/external", state: "failure" }] })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([
+      "Release despite the failed CI?",
+      `Release ${packageName}@1.0.1?`,
+    ])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("does not check CI when resuming", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.gh.createFailure = true
+    })
+    expect((await fixture.run()).error).toBeDefined()
+    fixture.updateState(state => {
+      state.gh.createFailure = false
+    })
+    const calls = fixture.calls("gh").length
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure" }] })
+    const result = await fixture.run({ resume: true })
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([`Finish the release "Release ${packageName}@1.0.1"?`])
+    expect(
+      fixture
+        .calls("gh")
+        .slice(calls)
+        .filter(([, option]) => option === "--paginate"),
+    ).toEqual([])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("warns about failed checks in a dry run", async () => {
+    const fixture = createFixture()
+    const short = setChecks(fixture, { runs: [{ name: "test", conclusion: "timed_out" }] })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([])
+    expect(result.output).toContain(
+      `⚠ CI failed on ${short}:\n  - test: https://github.com/owner/fixture/runs/test`,
+    )
   })
 })
 

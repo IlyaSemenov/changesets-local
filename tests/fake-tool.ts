@@ -50,6 +50,13 @@ export interface FakeState {
     }>
     /** Makes release creation fail. */
     createFailure: boolean
+    /** CI check runs by commit; a run is omitted for `missingReads` reads, then reports `in_progress` for `pendingReads` reads. */
+    checkRuns: Record<
+      string,
+      Array<{ name: string; conclusion: string; missingReads?: number; pendingReads?: number }>
+    >
+    /** Commit statuses by commit; a status reports `pending` for `pendingReads` reads. */
+    statuses: Record<string, Array<{ context: string; state: string; pendingReads?: number }>>
   }
 }
 
@@ -66,7 +73,14 @@ export function createFakeState(): FakeState {
       maintainers: {},
       scopes: {},
     },
-    gh: { authenticated: true, repo: "owner/fixture", releases: [], createFailure: false },
+    gh: {
+      authenticated: true,
+      repo: "owner/fixture",
+      releases: [],
+      createFailure: false,
+      checkRuns: {},
+      statuses: {},
+    },
   }
 }
 
@@ -227,6 +241,45 @@ if (import.meta.main) {
           data: { repository: { release: release ? { isDraft: release.draft === true } : null } },
         }),
       )
+    } else if (args[0] === "api" && args[1] === "--paginate") {
+      // Prints the items that the jq filter of the real command selects, one JSON object per line.
+      const match = /^repos\/(.+)\/commits\/(\w+)\/(check-runs|status)\?/.exec(args[2]!)
+      if (!match || match[1] !== state.gh.repo) {
+        fail(`unexpected endpoint ${args[2]}`)
+      }
+      const [, , commit, endpoint] = match!
+      const items: unknown[] = []
+      updateFakeState(stateDir, current => {
+        if (endpoint === "check-runs") {
+          for (const run of current.gh.checkRuns[commit!] ?? []) {
+            if ((run.missingReads ?? 0) > 0) {
+              run.missingReads! -= 1
+              continue
+            }
+            const pending = (run.pendingReads ?? 0) > 0
+            items.push({
+              name: run.name,
+              status: pending ? "in_progress" : "completed",
+              conclusion: pending ? null : run.conclusion,
+              html_url: `https://github.com/${current.gh.repo}/runs/${run.name}`,
+            })
+            run.pendingReads = Math.max(0, (run.pendingReads ?? 0) - 1)
+          }
+        } else {
+          for (const status of current.gh.statuses[commit!] ?? []) {
+            const pending = (status.pendingReads ?? 0) > 0
+            items.push({
+              context: status.context,
+              state: pending ? "pending" : status.state,
+              target_url: null,
+            })
+            status.pendingReads = Math.max(0, (status.pendingReads ?? 0) - 1)
+          }
+        }
+      })
+      for (const item of items) {
+        console.log(JSON.stringify(item))
+      }
     } else if (args[0] === "release" && args[1] === "create") {
       const tag = args[2]!
       if (option("--repo") !== state.gh.repo) {
