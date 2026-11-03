@@ -226,5 +226,5 @@ It also skips other commits whose message starts with `Release `.
 
 - Yarn projects are not supported.
 - Packages that publish from `publishConfig.directory` are not supported.
-- Only GitHub repositories and the public npm registry are supported.
+- Only repositories on github.com and the public npm registry are supported; GitHub Enterprise Server is not.
 - The repository must have no other release automation that publishes the same versions.
