@@ -40,6 +40,19 @@ npm install --save-dev changesets-local
 
 `npx changesets-local` runs the installed version; without it, npx downloads the latest version.
 
+To release with a command that is easy to remember, add a `release` script to `package.json`:
+
+```json
+{
+  "scripts": {
+    "release": "changesets-local"
+  }
+}
+```
+
+Then run `bun release`, `pnpm release`, or `npm run release`.
+npm passes options to the script only after `--`, such as `npm run release -- --dry-run`.
+
 ## Release packages
 
 Record user-visible changes with changesets as usual and commit them:
