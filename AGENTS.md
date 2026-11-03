@@ -107,7 +107,7 @@ Describe the user-visible change.
 
 ## Tests
 
-- Test release behavior with the fixtures from `tests/fixture.ts`: a temporary repository with a bare Git remote and fake npm, pnpm, and gh from `tests/fake-tool.ts` on a restricted PATH.
+- Test release behavior with the fixtures from `tests/fixture.ts`: a temporary repository with a bare Git remote and fake npm, pnpm, and gh from `tests/fake-tool/` on a restricted PATH.
   Never let tests reach the real npm registry or GitHub; extend the fakes for every new npm, pnpm, or gh command.
 - The `test` script runs tests concurrently: keep the state of each test in its own fixture, and do not change process-wide state such as `process.env` or the working directory.
 

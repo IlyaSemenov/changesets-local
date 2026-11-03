@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
-import type { FakeState } from "./fake-tool"
+import type { FakeState } from "./fake-tool/state"
 import { changeset, createFixture, expectReleased, type Fixture, packageName } from "./fixture"
 
 describe("release", () => {

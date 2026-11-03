@@ -18,7 +18,7 @@ import { extractChangelogEntry } from "../src/changelog"
 import type { Context } from "../src/context"
 import { release, type ReleaseOptions } from "../src/release"
 
-import { createFakeState, type FakeState, readFakeState, updateFakeState } from "./fake-tool"
+import { createFakeState, type FakeState, readFakeState, updateFakeState } from "./fake-tool/state"
 
 const repoRoot = dirname(import.meta.dir)
 
@@ -163,7 +163,7 @@ export function createFixture(options: FixtureOptions = {}): Fixture {
     // Not a /bin/sh wrapper: dash drops environment variables such as `npm_config_@scope:registry`.
     writeFileSync(
       join(binDir, tool),
-      `#!${Bun.which("bun")} ${join(import.meta.dir, "fake-tool.ts")}\n`,
+      `#!${Bun.which("bun")} ${join(import.meta.dir, "fake-tool", "main.ts")}\n`,
       { mode: 0o755 },
     )
   }
