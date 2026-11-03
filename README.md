@@ -26,7 +26,7 @@ It checks Git, npm, and GitHub before publishing and can finish an interrupted r
 - npm, pnpm, or Bun as the package manager.
 - `@changesets/cli` 3 installed as a dev dependency at the repository root, and `.changeset/config.json` with `"commit": false`.
 - Node.js ^22.11, ^24, or >=26.
-- [GitHub CLI](https://cli.github.com) logged in to an account that can create releases in the repository.
+- [GitHub CLI](https://cli.github.com) and a GitHub account that can create releases in the repository.
 - An npm account with publish access to the packages.
   For a new package in an organization scope, create the npm organization first.
 
@@ -39,16 +39,6 @@ npm install --save-dev changesets-local
 ```
 
 `npx changesets-local` runs the installed version; without it, npx downloads the latest version.
-
-## Log in
-
-Log in to GitHub once; changesets-local checks both logins before changing anything and runs `npm login` itself when npm is not logged in.
-
-```sh
-gh auth login
-```
-
-changesets-local never asks for or stores npm passwords, one-time passwords, or tokens: npm asks for them itself when it logs in and publishes.
 
 ## Release packages
 
@@ -66,6 +56,8 @@ When you want to release, commit your changes, check out the base branch from `.
 ```sh
 npx changesets-local
 ```
+
+When npm or the GitHub CLI is not logged in, changesets-local runs `npm login` or `gh auth login` first; complete the login in the terminal.
 
 changesets-local versions the packages, runs [`release:check`](#check-the-release-before-publishing), [waits for CI](#wait-for-ci), and shows the release before asking for confirmation:
 
@@ -101,6 +93,7 @@ Release my-package@1.5.0? [y/N]
 
 After you confirm, it runs the steps in this order.
 When npm asks for a one-time password or browser authentication, complete it in the terminal.
+changesets-local never asks for or stores passwords, one-time passwords, or tokens: npm and gh ask for them themselves.
 
 If you decline, or versioning or `release:check` fails, changesets-local restores the working tree and nothing is committed.
 Ctrl+C before the release commit does the same; after it, the release stops, and you [finish it](#finish-an-interrupted-release) with `--resume`.

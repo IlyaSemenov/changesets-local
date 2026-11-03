@@ -154,7 +154,7 @@ export async function release(ctx: Context, options: ReleaseOptions = {}) {
 }
 
 /**
- * Checks the repository, tools, and logins, logs in to npm when needed, and reads what a release needs.
+ * Checks the repository, tools, and logins, logs in to npm and GitHub when needed, and reads what a release needs.
  *
  * A dry run previews the release of HEAD: it reads the project from HEAD and warns about a dirty work tree or another branch instead of failing.
  */
@@ -202,9 +202,11 @@ async function prepareWorkspace(ctx: Context, options: ReleaseOptions): Promise<
   }
   // `npm whoami` asks the configured registry, so another registry fails before a needless login.
   await assertNpmjsRegistry(ctx, getRegistryTools(project), [])
-  // A dry run changes nothing, including the npm login.
+  // A dry run changes nothing, including the npm and GitHub logins.
   const npmUser = await getNpmUser(ctx, { login: !options.dryRun })
-  const repo = await resolveGitHubRepo(ctx, await getRemoteUrl(ctx, upstream.remote))
+  const repo = await resolveGitHubRepo(ctx, await getRemoteUrl(ctx, upstream.remote), {
+    login: !options.dryRun,
+  })
   await fetchRemote(ctx, upstream.remote)
   logDone(ctx, `${baseBranch} tracks ${upstream.remote}, npm user ${npmUser}, GitHub ${repo}`)
   return { project, branch: branch ?? "HEAD", upstream, repo, npmUser }

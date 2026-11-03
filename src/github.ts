@@ -1,5 +1,8 @@
-import { type Context, ReleaseError } from "./context"
+import { type Context, logWarning, ReleaseError } from "./context"
 import { captureCommand, describeFailure, readCommand, runCommand } from "./exec"
+
+/** Arguments that select github.com, the only supported GitHub host, even when gh defaults to an Enterprise host. */
+const githubHostArgs = ["--hostname", "github.com"]
 
 /** Repository permissions that allow creating releases. */
 const writePermissions = new Set(["ADMIN", "MAINTAIN", "WRITE"])
@@ -7,17 +10,28 @@ const writePermissions = new Set(["ADMIN", "MAINTAIN", "WRITE"])
 /**
  * Resolves the GitHub repository of a Git remote URL with the GitHub CLI.
  *
+ * When `gh` is not logged in to github.com, runs `gh auth login` if `login` is set, letting gh ask for credentials in the terminal.
  * Fails with instructions when `gh` is not logged in, the remote is not on GitHub, or the user cannot create releases there.
  * Returns the repository as `OWNER/REPO`.
  */
-export async function resolveGitHubRepo(ctx: Context, remoteUrl: string) {
-  const result = await captureCommand(ctx, "gh", [
-    "repo",
-    "view",
-    remoteUrl,
-    "--json",
-    "nameWithOwner,viewerPermission",
-  ])
+export async function resolveGitHubRepo(
+  ctx: Context,
+  remoteUrl: string,
+  { login }: { login: boolean },
+) {
+  const args = ["repo", "view", remoteUrl, "--json", "nameWithOwner,viewerPermission"]
+  let result = await captureCommand(ctx, "gh", args)
+  // Only a missing token is fixed by logging in; other failures, such as an unreachable GitHub or a remote outside GitHub, are reported.
+  // `gh auth token` checks only the github.com token, unlike `gh auth status`, which validates every account and fails when GitHub is unreachable.
+  if (
+    result.code !== 0 &&
+    login &&
+    (await captureCommand(ctx, "gh", ["auth", "token", ...githubHostArgs])).code !== 0
+  ) {
+    logWarning(ctx, "GitHub CLI is not logged in.")
+    await runCommand(ctx, "gh", ["auth", "login", ...githubHostArgs])
+    result = await captureCommand(ctx, "gh", args)
+  }
   if (result.code !== 0) {
     throw new ReleaseError(
       [

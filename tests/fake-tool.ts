@@ -46,6 +46,10 @@ export interface FakeState {
   gh: {
     /** Whether `gh` is logged in. */
     authenticated: boolean
+    /** Makes `gh auth login` fail. */
+    loginFailure: boolean
+    /** Makes `gh repo view` fail as when GitHub is unreachable. */
+    repoViewFailure: boolean
     repo: string
     releases: Array<{
       tag: string
@@ -101,6 +105,8 @@ export function createFakeState(): FakeState {
     },
     gh: {
       authenticated: true,
+      loginFailure: false,
+      repoViewFailure: false,
       repo: "owner/fixture",
       releases: [],
       createFailure: false,
@@ -267,6 +273,22 @@ if (import.meta.main) {
     } else {
       passThrough(tool === "npm" ? process.env.FAKE_REAL_NPM! : process.env.FAKE_REAL_PNPM!)
     }
+  } else if (tool === "gh" && args[0] === "auth") {
+    if (args[1] === "token") {
+      if (!state.gh.authenticated) {
+        fail("no oauth token found for github.com")
+      }
+      console.log("gho_fake")
+    } else if (args[1] === "login") {
+      if (state.gh.loginFailure) {
+        fail("error authenticating with GitHub: authorization denied")
+      }
+      updateFakeState(stateDir, current => {
+        current.gh.authenticated = true
+      })
+    } else {
+      fail(`unsupported fake gh command: ${args.join(" ")}`)
+    }
   } else if (tool === "gh") {
     if (!state.gh.authenticated) {
       fail("To get started with GitHub CLI, please run:  gh auth login", 4)
@@ -276,6 +298,9 @@ if (import.meta.main) {
       fail(`missing ${name}`)
     const option = (name: string) => args[args.indexOf(name) + 1]
     if (args[0] === "repo" && args[1] === "view") {
+      if (state.gh.repoViewFailure) {
+        fail("error connecting to api.github.com")
+      }
       console.log(JSON.stringify({ nameWithOwner: state.gh.repo, viewerPermission: "ADMIN" }))
     } else if (args[0] === "api" && args[1] === "graphql") {
       const tag = field("tag")

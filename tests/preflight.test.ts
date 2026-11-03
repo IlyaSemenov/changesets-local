@@ -210,12 +210,50 @@ describe("tools and authentication", () => {
     )
   })
 
-  it("fails when gh is not logged in", async () => {
-    const fixture = createFixture()
-    fixture.updateState(state => {
-      state.gh.authenticated = false
+  describe("gh login", () => {
+    function createLoggedOutFixture() {
+      const fixture = createFixture()
+      fixture.updateState(state => {
+        state.gh.authenticated = false
+      })
+      return fixture
+    }
+
+    it("logs in when gh is not logged in", async () => {
+      const fixture = createLoggedOutFixture()
+      const result = await fixture.run()
+      expect(result.error).toBeUndefined()
+      expect(result.output).toContain("GitHub CLI is not logged in.")
+      expect(fixture.calls("gh").filter(([command]) => command === "auth")).toEqual([
+        ["auth", "token", "--hostname", "github.com"],
+        ["auth", "login", "--hostname", "github.com"],
+      ])
+      expect(fixture.state().gh.releases).toHaveLength(1)
     })
-    expect(await runRejected(fixture)).toContain("Log in with `gh auth login`")
+
+    it("fails when gh login fails", async () => {
+      const fixture = createLoggedOutFixture()
+      fixture.updateState(state => {
+        state.gh.loginFailure = true
+      })
+      expect(await runRejected(fixture)).toContain("authorization denied")
+    })
+
+    it("does not log in when gh is logged in but GitHub is unreachable", async () => {
+      const fixture = createFixture()
+      fixture.updateState(state => {
+        state.gh.repoViewFailure = true
+      })
+      expect(await runRejected(fixture)).toContain("error connecting to api.github.com")
+      expect(fixture.calls("gh").filter(([, command]) => command === "login")).toEqual([])
+    })
+
+    it("does not log in during a dry run", async () => {
+      const fixture = createLoggedOutFixture()
+      const result = await fixture.run({ dryRun: true })
+      expect(result.error?.message).toContain("Log in with `gh auth login`")
+      expect(fixture.state().gh.authenticated).toBe(false)
+    })
   })
 
   it("fails when pnpm uses another registry", async () => {
