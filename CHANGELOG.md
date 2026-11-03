@@ -1,5 +1,12 @@
 # changesets-local
 
+## 1.3.0
+
+### Minor Changes
+
+- c49b04f: Log in to GitHub with `gh auth login` when a release starts without a GitHub CLI login, instead of failing.
+- d0ea984: Log in to npm with `npm login` when a release starts without an npm login, instead of failing.
+
 ## 1.2.1
 
 ### Patch Changes
