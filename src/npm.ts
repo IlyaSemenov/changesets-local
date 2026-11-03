@@ -1,11 +1,34 @@
-import { type Context, ReleaseError } from "./context"
-import { captureCommand, formatCommand, readCommand } from "./exec"
+import { type Context, logWarning, ReleaseError } from "./context"
+import { captureCommand, formatCommand, readCommand, runCommand } from "./exec"
 
 /** Error codes of npm commands that need a login. */
 const authErrorCodes = new Set(["E401", "ENEEDAUTH"])
 
-/** Returns the npm user logged in to the registry, or fails with the reason, suggesting a login when npm needs one. */
-export async function getNpmUser(ctx: Context) {
+/**
+ * Returns the npm user logged in to the registry.
+ *
+ * When npm is not logged in, runs `npm login` if `login` is set, letting npm ask for credentials in the terminal, and fails otherwise.
+ */
+export async function getNpmUser(ctx: Context, { login }: { login: boolean }) {
+  const user = await readNpmUser(ctx)
+  if (user !== undefined) {
+    return user
+  }
+  if (!login) {
+    throw new ReleaseError("npm is not logged in. Run `npm login` and try again.")
+  }
+  logWarning(ctx, "npm is not logged in.")
+  // A `scope` in the npm settings would direct the login to the registry of that scope.
+  await runCommand(ctx, "npm", ["login", `--registry=${npmjsRegistry}`, "--scope="])
+  const loggedInUser = await readNpmUser(ctx)
+  if (loggedInUser === undefined) {
+    throw new ReleaseError("npm is still not logged in after `npm login`.")
+  }
+  return loggedInUser
+}
+
+/** Returns the npm user logged in to the registry, or `undefined` when npm needs a login; fails on other errors. */
+async function readNpmUser(ctx: Context) {
   const result = await captureCommand(ctx, "npm", ["whoami", "--json"])
   const output = parseJson(result.stdout)
   if (result.code === 0 && typeof output === "string") {
@@ -13,7 +36,7 @@ export async function getNpmUser(ctx: Context) {
   }
   const error = (output as { error?: { code?: unknown; summary?: unknown } } | undefined)?.error
   if (typeof error?.code === "string" && authErrorCodes.has(error.code)) {
-    throw new ReleaseError("npm is not logged in. Run `npm login` and try again.")
+    return undefined
   }
   const reason = typeof error?.summary === "string" ? error.summary : result.stderr.trim()
   throw new ReleaseError(`Could not verify the npm login: ${reason}`)

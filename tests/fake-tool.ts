@@ -16,6 +16,12 @@ export interface FakeState {
   npm: {
     /** Logged-in npm user, or null when logged out. */
     user: string | null
+    /** Error code that `npm whoami` reports without a user: ENEEDAUTH without credentials, or E401 for a rejected token. */
+    loggedOutError: "ENEEDAUTH" | "E401"
+    /** Makes `npm whoami` fail as when the registry is unreachable. */
+    whoamiFailure: boolean
+    /** User that `npm login` logs in, or null to make the login fail. */
+    loginUser: string | null
     /** Published versions by package name. */
     versions: Record<string, string[]>
     /** npm dist-tags by package name; a package without them has `latest` at its last version. */
@@ -82,6 +88,9 @@ export function createFakeState(): FakeState {
   return {
     npm: {
       user: "tester",
+      loggedOutError: "ENEEDAUTH",
+      whoamiFailure: false,
+      loginUser: "tester",
       versions: {},
       distTags: {},
       hidden: [],
@@ -164,10 +173,26 @@ if (import.meta.main) {
   if (tool === "npm" || tool === "pnpm") {
     const [command, spec = ""] = args
     if (command === "whoami") {
+      if (state.npm.whoamiFailure) {
+        registryError("ECONNRESET", "request to https://registry.npmjs.org/-/whoami failed")
+      }
       if (!state.npm.user) {
-        registryError("E401", "Unauthorized - GET https://registry.npmjs.org/-/whoami")
+        registryError(
+          state.npm.loggedOutError,
+          state.npm.loggedOutError === "E401"
+            ? "Unauthorized - GET https://registry.npmjs.org/-/whoami"
+            : "This command requires you to be logged in to https://registry.npmjs.org/",
+        )
       }
       console.log(JSON.stringify(state.npm.user))
+    } else if (tool === "npm" && command === "login") {
+      const { loginUser } = state.npm
+      if (!loginUser) {
+        fail("npm error code E401\nnpm error Incorrect or missing password.")
+      }
+      updateFakeState(stateDir, current => {
+        current.npm.user = loginUser
+      })
     } else if (command === "view" || command === "info") {
       const at = spec.lastIndexOf("@")
       const [name, version] = at > 0 ? [spec.slice(0, at), spec.slice(at + 1)] : [spec, undefined]

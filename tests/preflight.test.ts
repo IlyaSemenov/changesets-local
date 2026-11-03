@@ -129,12 +129,56 @@ describe("tools and authentication", () => {
     })
   }
 
-  it("fails when npm is not logged in", async () => {
-    const fixture = createFixture()
-    fixture.updateState(state => {
-      state.npm.user = null
+  describe("npm login", () => {
+    function createLoggedOutFixture() {
+      const fixture = createFixture()
+      fixture.updateState(state => {
+        state.npm.user = null
+      })
+      return fixture
+    }
+
+    it.each(["ENEEDAUTH", "E401"] as const)(
+      "logs in to the public registry when npm whoami reports %s",
+      async code => {
+        const fixture = createLoggedOutFixture()
+        fixture.updateState(state => {
+          state.npm.loggedOutError = code
+        })
+        const result = await fixture.run()
+        expect(result.error).toBeUndefined()
+        expect(result.output).toContain("npm is not logged in.")
+        expect(result.output).toContain("npm user tester")
+        expect(fixture.calls("npm").filter(([command]) => command === "login")).toEqual([
+          ["login", "--registry=https://registry.npmjs.org", "--scope="],
+        ])
+        expect(fixture.state().npm.publishes).toHaveLength(1)
+      },
+    )
+
+    it("fails when npm login fails", async () => {
+      const fixture = createLoggedOutFixture()
+      fixture.updateState(state => {
+        state.npm.loginUser = null
+      })
+      expect(await runRejected(fixture)).toContain("Incorrect or missing password.")
     })
-    expect(await runRejected(fixture)).toContain("npm is not logged in. Run `npm login`")
+
+    it("does not log in when the registry is unreachable", async () => {
+      const fixture = createFixture()
+      fixture.updateState(state => {
+        state.npm.whoamiFailure = true
+      })
+      expect(await runRejected(fixture)).toContain("Could not verify the npm login:")
+      expect(fixture.calls("npm").filter(([command]) => command === "login")).toEqual([])
+    })
+
+    it("does not log in during a dry run", async () => {
+      const fixture = createLoggedOutFixture()
+      const result = await fixture.run({ dryRun: true })
+      expect(result.error?.message).toContain("npm is not logged in. Run `npm login`")
+      expect(fixture.state().npm.user).toBeNull()
+    })
   })
 
   it("fails when the npm user cannot publish the package", async () => {

@@ -27,7 +27,7 @@ It checks Git, npm, and GitHub before publishing and can finish an interrupted r
 - `@changesets/cli` 3 installed as a dev dependency at the repository root, and `.changeset/config.json` with `"commit": false`.
 - Node.js ^22.11, ^24, or >=26.
 - [GitHub CLI](https://cli.github.com) logged in to an account that can create releases in the repository.
-- npm logged in to an account that can publish the packages.
+- An npm account with publish access to the packages.
   For a new package in an organization scope, create the npm organization first.
 
 ## Install
@@ -40,16 +40,15 @@ npm install --save-dev changesets-local
 
 `npx changesets-local` runs the installed version; without it, npx downloads the latest version.
 
-## Log in to npm and GitHub
+## Log in
 
-Log in once; changesets-local checks both logins before changing anything.
+Log in to GitHub once; changesets-local checks both logins before changing anything and runs `npm login` itself when npm is not logged in.
 
 ```sh
-npm login
 gh auth login
 ```
 
-changesets-local never asks for or stores npm passwords, one-time passwords, or tokens: npm asks for them itself when it publishes.
+changesets-local never asks for or stores npm passwords, one-time passwords, or tokens: npm asks for them itself when it logs in and publishes.
 
 ## Release packages
 
