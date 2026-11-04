@@ -1,0 +1,5 @@
+Package plugin must depend on the current version of core: 0.2.0 vs ^0.2.1
+Package tool must depend on the current version of core: 0.2.0 vs ^0.2.1
+
+Found issues in your config:
+- ignore: Invalid path

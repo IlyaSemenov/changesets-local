@@ -102,7 +102,7 @@ export async function readPublishPlan(ctx: Context, cwd = ctx.cwd): Promise<Publ
 /**
  * Applies pending changesets: bumps versions and updates changelogs.
  *
- * Prints the output of Changesets, such as configuration warnings, without the lines that do not apply to a release by changesets-local.
+ * Prints the output of Changesets, such as configuration warnings, without repeated lines and the lines that do not apply to a release by changesets-local.
  */
 export async function applyChangesets(ctx: Context, cwd = ctx.cwd) {
   const args = ["version"]
@@ -120,11 +120,27 @@ export async function applyChangesets(ctx: Context, cwd = ctx.cwd) {
 /** Lines of `changeset version` output that changesets-local leaves out: the Changesets banner, and the advice to review and commit the changes, which changesets-local does itself. */
 const versionNoise = [/^\S*\s*changeset v\d/, /Review them and commit at your leisure/]
 
-/** Removes the Changesets banner and commit advice from `changeset version` output, preserving other output. */
+/**
+ * Removes the Changesets banner, commit advice, and repeated lines from `changeset version` output, preserving the order of other output.
+ *
+ * Changesets repeats a warning about a dependency range each time it reads the dependency graph.
+ */
 export function filterVersionOutput(output: string) {
+  const seen = new Set<string>()
   return output
     .split("\n")
-    .filter(line => !versionNoise.some(pattern => pattern.test(line)))
+    .filter(line => {
+      if (versionNoise.some(pattern => pattern.test(line))) {
+        return false
+      }
+      // Blank lines separate paragraphs, so they are not repetitions.
+      if (line.trim() === "") {
+        return true
+      }
+      const repeated = seen.has(line)
+      seen.add(line)
+      return !repeated
+    })
     .join("\n")
     .trim()
 }

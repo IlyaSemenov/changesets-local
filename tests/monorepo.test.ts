@@ -230,6 +230,19 @@ describe("monorepo release with dependent packages", () => {
     expectPackageReleased(fixture, "packages/beta", "1.0.1")
   })
 
+  it("prints a warning about a dependency range once", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesets: { fix: changeset("patch", "Fix both.", ["alpha", "@fixture/beta"]) },
+    })
+    commitManifest(fixture, "packages/beta", { dependencies: { alpha: "^1.0.1" } })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(
+      result.output.split("must depend on the current version of alpha: 1.0.0 vs ^1.0.1").length,
+    ).toBe(2)
+  })
+
   it.each([{ dryRun: false }, { dryRun: true }])(
     "explains the release of a package without a changeset with %o",
     async options => {

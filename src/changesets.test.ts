@@ -13,3 +13,15 @@ it("preserves warnings while removing the banner and commit advice", () => {
     'Found issues in your config:\n- fixed: Invalid path: The package or glob "nonexistent-*" does not match any package in the project. Note that glob expressions must be defined according to https://npmx.dev/picomatch.',
   )
 })
+
+it("removes repeated lines while preserving the order and paragraphs of other output", () => {
+  const output = readFileSync(
+    join(import.meta.dir, "fixtures", "changeset-version-repeated-output.txt"),
+    "utf8",
+  )
+  const expected = readFileSync(
+    join(import.meta.dir, "fixtures", "changeset-version-repeated-output.expected.txt"),
+    "utf8",
+  )
+  expect(filterVersionOutput(output)).toBe(expected.trim())
+})
