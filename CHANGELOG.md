@@ -1,5 +1,18 @@
 # changesets-local
 
+## 1.4.0
+
+### Minor Changes
+
+- ee1112b: Mark packages released without a changeset in the release confirmation and name their dependencies from the same release.
+- 887a2c9: Warn in the release confirmation when a public package outside the release has dependency ranges that differ from those in its published version.
+- 2d115d1: Show changes in `dependencies`, `optionalDependencies`, and `peerDependencies` since the previous release in the release confirmation.
+
+### Patch Changes
+
+- f53610d: Fix the wrong old version shown in the release confirmation for a package with a lower version than the others in its `fixed` or `linked` group.
+- 279c749: Fix the same `changeset version` warning being printed several times during a release.
+
 ## 1.3.0
 
 ### Minor Changes
