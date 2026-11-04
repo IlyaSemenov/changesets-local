@@ -21,7 +21,6 @@ export interface PlannedRelease {
   name: string
   /** SemVer bump type. */
   type: "major" | "minor" | "patch"
-  oldVersion: string
   newVersion: string
   /** Whether a pending changeset names the package. */
   hasChangeset: boolean
@@ -42,7 +41,6 @@ interface ReleasePlan {
   releases: Array<{
     name: string
     type: string
-    oldVersion: string
     newVersion: string
     changesets: string[]
   }>
@@ -82,10 +80,8 @@ export async function planRelease(ctx: Context, cwd = ctx.cwd): Promise<PlannedR
     return (await readJsonFile<ReleasePlan>(output))!
   })
   return sortByName(
-    plan.releases.flatMap(({ name, type, oldVersion, newVersion, changesets }) =>
-      isBumpType(type)
-        ? [{ name, type, oldVersion, newVersion, hasChangeset: changesets.length > 0 }]
-        : [],
+    plan.releases.flatMap(({ name, type, newVersion, changesets }) =>
+      isBumpType(type) ? [{ name, type, newVersion, hasChangeset: changesets.length > 0 }] : [],
     ),
   )
 }

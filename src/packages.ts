@@ -20,6 +20,8 @@ export interface Manifest {
 export interface PackageRelease {
   name: string
   version: string
+  /** Version in the previous manifest, or null when the package is new. */
+  oldVersion: string | null
   /** Package directory relative to the project root; empty for the root package. */
   dir: string
   private: boolean
@@ -65,7 +67,7 @@ export async function listCommitVersionChanges(
 /** Returns the Git tag of a package version, following the Changesets conventions, or null for an untagged private package. */
 export function getReleaseTag(
   conventions: ReleaseConventions,
-  release: Omit<PackageRelease, "tag">,
+  release: Pick<PackageRelease, "name" | "version" | "private">,
 ) {
   if (release.private && !conventions.tagPrivatePackages) {
     return null
@@ -162,7 +164,6 @@ export async function readTaggedManifest(
   const tag = getReleaseTag(conventions, {
     name: manifest.name,
     version: manifest.version,
-    dir,
     private: manifest.private === true,
   })
   if (!tag) {
@@ -187,12 +188,14 @@ async function listVersionChanges(
       continue
     }
     const manifest = parseManifest(await read.readNew(path))
-    if (!manifest || manifest.version === parseManifest(await read.readOld(path))?.version) {
+    const oldVersion = parseManifest(await read.readOld(path))?.version ?? null
+    if (!manifest || manifest.version === oldVersion) {
       continue
     }
     const release = {
       name: manifest.name,
       version: manifest.version,
+      oldVersion,
       dir,
       private: manifest.private === true,
     }

@@ -373,12 +373,7 @@ async function isApparentlyAbandoned(ctx: Context, state: ReleaseState) {
 }
 
 /** Fails when a versioned package already has its tag, or a public one its version on npm. */
-async function assertUnreleased(
-  ctx: Context,
-  workspace: Workspace,
-  plan: PlannedRelease[],
-  releases: PackageRelease[],
-) {
+async function assertUnreleased(ctx: Context, workspace: Workspace, releases: PackageRelease[]) {
   const { project, upstream } = workspace
   // Private packages are not published, and their names may belong to other packages on npm.
   const publicPackages = releases.filter(entry => !entry.private)
@@ -391,9 +386,8 @@ async function assertUnreleased(
   )
   for (const entry of tagged) {
     if (remoteTags.has(entry.tag!) || (await getLocalTagCommit(ctx, entry.tag!))) {
-      const oldVersion = plan.find(planned => planned.name === entry.name)?.oldVersion
       throw new ReleaseError(
-        `Tag ${entry.tag} already exists, but ${entry.name} is at ${oldVersion}.`,
+        `Tag ${entry.tag} already exists, but ${entry.name} is at ${entry.oldVersion}.`,
       )
     }
   }
@@ -498,7 +492,7 @@ async function versionPackages(
       `\`changeset version\` set ${formatVersions(releases) || "no versions"}, but ${planned} was planned.`,
     )
   }
-  await assertUnreleased(ctx, workspace, plan, releases)
+  await assertUnreleased(ctx, workspace, releases)
   const notes = new Map<string, string>()
   const releasedDependencies = new Map<string, PackageRelease[]>()
   for (const entry of releases) {
@@ -1049,11 +1043,11 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
   ctx.log("")
   ctx.log(styleText("bold", summary.subject))
   ctx.log(
-    summary.plan
-      .map(
-        entry =>
-          `  ${entry.name} ${entry.oldVersion} → ${entry.newVersion} (${formatBump(entry, summary.releasedDependencies.get(entry.name))})`,
-      )
+    releases
+      .map(entry => {
+        const planned = summary.plan.find(item => item.name === entry.name)!
+        return `  ${entry.name} ${entry.oldVersion} → ${entry.version} (${formatBump(planned, summary.releasedDependencies.get(entry.name))})`
+      })
       .join("\n"),
   )
   if (summary.rangeChanges.length > 0) {

@@ -202,6 +202,24 @@ describe("monorepo release", () => {
     expect(result.error).toBeUndefined()
     expect(result.output).toContain("Create and push tags alpha@1.0.1, @fixture/example@1.0.1")
   })
+
+  it.each([
+    ["fixed", "(patch, no changeset)", ["alpha"]],
+    ["linked", "(patch)", ["alpha", "@fixture/beta"]],
+  ] as const)(
+    "shows a package's previous version when it is lower than the others in a %s group",
+    async (group, bump, names) => {
+      const fixture = createFixture({
+        monorepo: true,
+        packages: { "packages/beta": { version: "0.9.0" } },
+        changesetsConfig: { [group]: [["alpha", "@fixture/beta"]] },
+        changesets: { fix: changeset("patch", "Fix the group.", [...names]) },
+      })
+      const result = await fixture.run({ dryRun: true })
+      expect(result.error).toBeUndefined()
+      expect(result.output).toContain(`  @fixture/beta 0.9.0 → 1.0.1 ${bump}\n`)
+    },
+  )
 })
 
 describe("monorepo release with dependent packages", () => {
