@@ -141,6 +141,14 @@ export async function listCommitPaths(ctx: Context, commit: string) {
   return output.split("\0").filter(Boolean)
 }
 
+/** Lists the tracked `package.json` files of a work tree at any depth. */
+export async function listTrackedManifestPaths(ctx: Context, cwd = ctx.cwd) {
+  const output = await readCommand(ctx, "git", ["ls-files", "-z", "--", ":(glob)**/package.json"], {
+    cwd,
+  })
+  return output.split("\0").filter(Boolean)
+}
+
 /** Returns the commit a local tag points to, or null when the tag does not exist. */
 export function getLocalTagCommit(ctx: Context, tag: string) {
   return resolveCommit(ctx, `refs/tags/${tag}`)

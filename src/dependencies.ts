@@ -15,6 +15,13 @@ export interface DependencyRangeChange {
   after: string | null
 }
 
+/** Differences of a public package outside a release from what its current version was published with. */
+export interface UnreleasedRangeChanges {
+  name: string
+  version: string
+  changes: DependencyRangeChange[]
+}
+
 /** Returns the given released packages that a manifest depends on at runtime, in their given order. */
 export function listReleasedDependencies<T extends { name: string }>(
   manifest: Manifest,
@@ -50,4 +57,23 @@ export function formatDependencyRangeChange({
 }: DependencyRangeChange) {
   const change = before === null ? `added ${after}` : `${before} → ${after ?? "removed"}`
   return `${field} ${dependency} ${change}`
+}
+
+/** Formats a warning that users keep getting the published dependencies of a package until a changeset releases its new ones. */
+export function formatUnreleasedRangeWarning({ name, version, changes }: UnreleasedRangeChanges) {
+  return [
+    ...changes.map(change => `${name}@${version} ${describePublishedRange(change)}`),
+    `Add a changeset for ${name} to publish ${changes.length === 1 ? "this change" : "these changes"}.`,
+  ].join("\n  ")
+}
+
+/** Describes a dependency difference between a published manifest and `package.json`; only an added or removed one names its field, so that a dependency moved between fields stays clear. */
+function describePublishedRange({ field, dependency, before, after }: DependencyRangeChange) {
+  if (before === null) {
+    return `is published without ${dependency} in ${field}, but package.json now has ${after} there.`
+  }
+  if (after === null) {
+    return `is published with ${dependency} ${before} in ${field}, but package.json no longer has it there.`
+  }
+  return `is published with ${dependency} ${before}, but package.json now has ${after}.`
 }

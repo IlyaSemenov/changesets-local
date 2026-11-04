@@ -27,8 +27,10 @@ import {
   type DependencyRangeChange,
   diffDependencyRanges,
   formatDependencyRangeChange,
+  formatUnreleasedRangeWarning,
   listReleasedDependencies,
   runtimeDependencyFields,
+  type UnreleasedRangeChanges,
 } from "./dependencies"
 import { readCommand, runCommand } from "./exec"
 import {
@@ -45,6 +47,7 @@ import {
   isAncestor,
   listChangedPaths,
   listCommitsBySubjectPrefix,
+  listTrackedManifestPaths,
   listTreeDifferences,
   pushCommit,
   pushTags,
@@ -68,6 +71,7 @@ import {
 } from "./npm"
 import {
   formatReleaseSubject,
+  getManifestDir,
   listCommitVersionChanges,
   listWorkTreeVersionChanges,
   type PackageRelease,
@@ -148,6 +152,8 @@ interface ReleaseSummary {
   releasedDependencies: Map<string, PackageRelease[]>
   /** Changes in the runtime dependencies of the public packages since their previous releases. */
   rangeChanges: PackageRangeChange[]
+  /** Public packages outside the release whose runtime dependencies differ from their current published versions. */
+  unreleasedRangeChanges: UnreleasedRangeChanges[]
   publishPlan: PublishPlanEntry[]
   diffStat: string
 }
@@ -504,7 +510,13 @@ async function versionPackages(
     }
   }
   const rangeChanges = await listRangeChanges(ctx, workspace.project, releases, cwd)
-  return { releases, notes, releasedDependencies, rangeChanges }
+  const unreleasedRangeChanges = await listUnreleasedRangeChanges(
+    ctx,
+    workspace.project,
+    releases,
+    cwd,
+  )
+  return { releases, notes, releasedDependencies, rangeChanges, unreleasedRangeChanges }
 }
 
 /**
@@ -533,6 +545,39 @@ async function listRangeChanges(
     }
   }
   return changes
+}
+
+/**
+ * Lists the public packages outside a release whose runtime dependencies in a versioned work tree differ from the tag of their current version.
+ *
+ * `changeset publish` creates the tag after a successful publication, so the tag shows what users install.
+ * Requiring it also leaves out tracked manifests that are not released, such as vendored packages and test fixtures.
+ * A single-package repository always releases its only package, and its `v1.0.0` tags do not name a package.
+ */
+async function listUnreleasedRangeChanges(
+  ctx: Context,
+  conventions: ReleaseConventions,
+  releases: PackageRelease[],
+  cwd: string,
+) {
+  if (!conventions.monorepo) {
+    return []
+  }
+  const released = new Set(releases.map(entry => entry.name))
+  const unreleased: UnreleasedRangeChanges[] = []
+  for (const path of await listTrackedManifestPaths(ctx, cwd)) {
+    const dir = getManifestDir(path)
+    const manifest = await readPackageManifest(cwd, dir)
+    if (!manifest || manifest.private === true || released.has(manifest.name)) {
+      continue
+    }
+    const tagged = await readTaggedManifest(ctx, conventions, manifest, dir)
+    const changes = tagged ? diffDependencyRanges(tagged, manifest) : []
+    if (changes.length > 0) {
+      unreleased.push({ name: manifest.name, version: manifest.version, changes })
+    }
+  }
+  return sortByName(unreleased)
 }
 
 /**
@@ -1049,6 +1094,13 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
         : []),
     ]),
   )
+  // After the steps, right before the confirmation, so that the output above does not push it away.
+  if (summary.unreleasedRangeChanges.length > 0) {
+    ctx.log("")
+    for (const entry of summary.unreleasedRangeChanges) {
+      logWarning(ctx, formatUnreleasedRangeWarning(entry))
+    }
+  }
 }
 
 /** Formats the bump type and the annotation for a package without a changeset, including its released dependencies. */

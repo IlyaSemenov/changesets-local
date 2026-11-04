@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test"
 import {
   diffDependencyRanges,
   formatDependencyRangeChange,
+  formatUnreleasedRangeWarning,
   listReleasedDependencies,
 } from "./dependencies"
 
@@ -103,6 +104,41 @@ describe("formatDependencyRangeChange", () => {
   it("formats a removed dependency", () => {
     expect(formatDependencyRangeChange({ ...change, before: "^1.0.0", after: null })).toBe(
       "dependencies core ^1.0.0 → removed",
+    )
+  })
+})
+
+describe("formatUnreleasedRangeWarning", () => {
+  const entry = { name: "plugin", version: "0.1.1" }
+
+  it("names the published and the local range of a dependency", () => {
+    expect(
+      formatUnreleasedRangeWarning({
+        ...entry,
+        changes: [
+          { field: "dependencies", dependency: "core", before: "^0.2.0", after: ">=0.2.0 <1" },
+        ],
+      }),
+    ).toBe(
+      "plugin@0.1.1 is published with core ^0.2.0, but package.json now has >=0.2.0 <1.\n  Add a changeset for plugin to publish this change.",
+    )
+  })
+
+  it("describes a dependency moved to another field", () => {
+    expect(
+      formatUnreleasedRangeWarning({
+        ...entry,
+        changes: [
+          { field: "dependencies", dependency: "core", before: "^0.2.0", after: null },
+          { field: "peerDependencies", dependency: "core", before: null, after: "^0.2.0" },
+        ],
+      }),
+    ).toBe(
+      [
+        "plugin@0.1.1 is published with core ^0.2.0 in dependencies, but package.json no longer has it there.",
+        "  plugin@0.1.1 is published without core in peerDependencies, but package.json now has ^0.2.0 there.",
+        "  Add a changeset for plugin to publish these changes.",
+      ].join("\n"),
     )
   })
 })

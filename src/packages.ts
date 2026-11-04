@@ -138,6 +138,11 @@ export function parseManifest(content: string | null): Manifest | null {
   }
 }
 
+/** Returns the package directory of a `package.json` path, in the format of `PackageRelease.dir`. */
+export function getManifestDir(path: string) {
+  return dirname(path) === "." ? "" : dirname(path)
+}
+
 /** Reads the manifest of a package in a work tree. */
 export async function readPackageManifest(cwd: string, dir: string) {
   return parseManifest(await readFile(join(cwd, dir, "package.json"), "utf8").catch(() => null))
@@ -176,7 +181,7 @@ async function listVersionChanges(
 ): Promise<PackageRelease[]> {
   const releases: PackageRelease[] = []
   for (const path of paths) {
-    const dir = dirname(path) === "." ? "" : dirname(path)
+    const dir = getManifestDir(path)
     // A single-package repository releases only its root package.
     if (!conventions.monorepo && dir !== "") {
       continue

@@ -529,6 +529,20 @@ describe("dry run", () => {
     )
   })
 
+  it("does not compare a vendored package with the tag of the released package", async () => {
+    const fixture = createFixture()
+    fixture.git("tag", "v1.0.0")
+    fixture.write(
+      "vendor/dep/package.json",
+      JSON.stringify({ name: "dep", version: "1.0.0", dependencies: { external: "^1.0.0" } }),
+    )
+    fixture.git("commit", "--quiet", "--all", "--message", "Change the vendored package")
+    fixture.git("push", "--quiet")
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).not.toContain("is published")
+  })
+
   it("previews the project as committed", async () => {
     const fixture = createFixture()
     const packageJson = JSON.parse(fixture.read("package.json"))

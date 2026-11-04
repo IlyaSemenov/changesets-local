@@ -104,7 +104,7 @@ Steps:
 Release my-package@1.5.0? [y/N]
 ```
 
-When the `dependencies`, `optionalDependencies`, or `peerDependencies` of a package differ from its previous release, whether you or Changesets changed them, the confirmation lists the differences after the packages:
+When the `dependencies`, `optionalDependencies`, or `peerDependencies` of a package in the release differ from its previous release, whether you or Changesets changed them, the confirmation lists the differences after the packages:
 
 ```text
 Dependency ranges:
@@ -145,6 +145,15 @@ The confirmation marks these packages and names their dependencies from the same
   core 0.2.0 → 0.3.0 (minor)
   plugin 0.1.1 → 0.1.2 (patch, no changeset: depends on core@0.3.0)
 ```
+
+When a public package outside the release has `dependencies`, `optionalDependencies`, or `peerDependencies` that differ from those in its published version, the confirmation warns you, because users keep getting the published ones:
+
+```text
+⚠ plugin@0.1.1 is published with core ^0.2.0, but package.json now has >=0.2.0 <1.
+  Add a changeset for plugin to publish this change.
+```
+
+Only packages with the Git tag of their current version are checked.
 
 The confirmation lists exactly what `changeset publish` will publish.
 If it would also publish a version outside the release, such as a new public package without a changeset, the release stops before the confirmation; release that package with a changeset or make it private.
