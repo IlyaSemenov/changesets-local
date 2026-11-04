@@ -250,6 +250,120 @@ describe("monorepo release with dependent packages", () => {
   })
 })
 
+describe("dependency ranges", () => {
+  /** Changes top-level fields of a package manifest in a pushed commit; undefined removes a field. */
+  function commitManifest(fixture: Fixture, dir: string, fields: Record<string, unknown>) {
+    const path = `${dir}/package.json`
+    fixture.write(path, JSON.stringify({ ...JSON.parse(fixture.read(path)), ...fields }))
+    fixture.git("commit", "--quiet", "--all", "--message", "Change the manifest")
+    fixture.git("push", "--quiet")
+  }
+
+  it("lists the ranges that Changesets changes", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      packageManager: "pnpm",
+      packages: { "packages/beta": { peerDependencies: { alpha: "workspace:^1.0.0" } } },
+      changesets: { breaking: changeset("major", "Change the API.", ["alpha"]) },
+    })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "\nDependency ranges:\n  @fixture/beta: peerDependencies alpha workspace:^1.0.0 → workspace:^2.0.0\n\nRelease notes:\n",
+    )
+  })
+
+  it("lists the ranges that Changesets changes in a dry run", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      packages: { "packages/beta": { dependencies: { alpha: ">=1.0.0 <2" } } },
+      changesets: { all: changeset("minor", "Add a feature.", ["alpha", "@fixture/beta"]) },
+    })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "  @fixture/beta: dependencies alpha >=1.0.0 <2 → >=1.1.0 <2.0.0-0\n",
+    )
+  })
+
+  describe("with an external dependency edited by hand", () => {
+    /** Creates a monorepo where beta depends on an external package at the tag of its version, if any, and at another range at HEAD. */
+    function createEditedFixture({ tagged }: { tagged: boolean }) {
+      const fixture = createFixture({ monorepo: true })
+      commitManifest(fixture, "packages/beta", { dependencies: { external: "^1.0.0" } })
+      if (tagged) {
+        fixture.git("tag", "@fixture/beta@1.0.0")
+      }
+      commitManifest(fixture, "packages/beta", { dependencies: { external: "^1.2.0" } })
+      return fixture
+    }
+
+    it("compares with the tag of the previous version", async () => {
+      const result = await createEditedFixture({ tagged: true }).run({ dryRun: true })
+      expect(result.error).toBeUndefined()
+      expect(result.output).toContain("  @fixture/beta: dependencies external ^1.0.0 → ^1.2.0\n")
+    })
+
+    it("compares with HEAD without the tag", async () => {
+      const result = await createEditedFixture({ tagged: false }).run({ dryRun: true })
+      expect(result.error).toBeUndefined()
+      expect(result.output).not.toContain("Dependency ranges:")
+    })
+  })
+
+  it("shows a dependency moved to another section as a removal and an addition", async () => {
+    const fixture = createFixture({ monorepo: true })
+    commitManifest(fixture, "packages/beta", { dependencies: { external: "^1.0.0" } })
+    fixture.git("tag", "@fixture/beta@1.0.0")
+    commitManifest(fixture, "packages/beta", {
+      dependencies: undefined,
+      peerDependencies: { external: ">=1.0.0 <3" },
+    })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "  @fixture/beta: dependencies external ^1.0.0 → removed\n  @fixture/beta: peerDependencies external added >=1.0.0 <3\n",
+    )
+  })
+
+  it("finds the tag by the version of the package in a fixed group", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      packages: { "packages/beta": { version: "0.9.0" } },
+      changesetsConfig: { fixed: [["alpha", "@fixture/beta"]] },
+      changesets: { fix: changeset("patch", "Fix alpha.", ["alpha"]) },
+    })
+    commitManifest(fixture, "packages/beta", { dependencies: { external: "^1.0.0" } })
+    fixture.git("tag", "@fixture/beta@0.9.0")
+    commitManifest(fixture, "packages/beta", { dependencies: { external: "^1.2.0" } })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain("  @fixture/beta: dependencies external ^1.0.0 → ^1.2.0\n")
+  })
+
+  it("leaves out development dependencies", async () => {
+    const fixture = createFixture({ monorepo: true })
+    fixture.git("tag", "@fixture/beta@1.0.0")
+    commitManifest(fixture, "packages/beta", { devDependencies: { external: "^1.0.0" } })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).not.toContain("Dependency ranges:")
+  })
+
+  it("leaves out private packages", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesetsConfig: { privatePackages: true },
+      changesets: { all: changeset("patch", "Fix everything.", ["alpha", privatePackage.name]) },
+    })
+    fixture.git("tag", `${privatePackage.name}@1.0.0`)
+    commitManifest(fixture, privatePackage.dir, { dependencies: { external: "^1.0.0" } })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).not.toContain("Dependency ranges:")
+  })
+})
+
 describe("monorepo recovery", () => {
   it("resumes after one of the packages fails to publish", async () => {
     const fixture = createFixture({ monorepo: true })

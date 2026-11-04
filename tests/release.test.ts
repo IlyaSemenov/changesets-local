@@ -512,6 +512,23 @@ describe("dry run", () => {
     )
   })
 
+  it("shows a dependency range edited since the tag of the previous version", async () => {
+    const fixture = createFixture()
+    fixture.git("tag", "v1.0.0")
+    const packageJson = JSON.parse(fixture.read("package.json"))
+    fixture.write(
+      "package.json",
+      JSON.stringify({ ...packageJson, dependencies: { dep: "file:./vendor/dep/" } }),
+    )
+    fixture.git("commit", "--quiet", "--all", "--message", "Change the dependency")
+    fixture.git("push", "--quiet")
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      `Dependency ranges:\n  ${packageName}: dependencies dep file:./vendor/dep → file:./vendor/dep/\n`,
+    )
+  })
+
   it("previews the project as committed", async () => {
     const fixture = createFixture()
     const packageJson = JSON.parse(fixture.read("package.json"))

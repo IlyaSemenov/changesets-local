@@ -104,6 +104,16 @@ Steps:
 Release my-package@1.5.0? [y/N]
 ```
 
+When the `dependencies`, `optionalDependencies`, or `peerDependencies` of a package differ from its previous release, whether you or Changesets changed them, the confirmation lists the differences after the packages:
+
+```text
+Dependency ranges:
+  plugin: peerDependencies core ^0.2.0 → ^0.3.0
+  tool: dependencies core >=0.2.0 <1 → >=0.3.0 <1.0.0-0
+```
+
+A package without the Git tag of its previous version shows only the changes that Changesets makes.
+
 After you confirm, it runs the steps in this order.
 When npm asks for a one-time password or browser authentication, complete it in the terminal.
 changesets-local never asks for or stores passwords, one-time passwords, or tokens: npm and gh ask for them themselves.
@@ -118,7 +128,7 @@ To preview a release without changing anything, run:
 npx changesets-local --dry-run
 ```
 
-The dry run checks the repository and logins and shows the release notes, changed files, and steps, but does not update the lockfile or run `release:check`.
+The dry run checks the repository and logins and shows the release notes, dependency ranges, changed files, and steps, but does not update the lockfile or run `release:check`.
 It previews the release of the last commit and warns when the working tree has uncommitted changes, another branch is checked out, or the base branch is not in sync with its remote branch.
 When you are on the base branch and it is in sync with its remote branch, it also warns when CI on the commit has failed or is still running.
 

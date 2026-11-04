@@ -23,7 +23,13 @@ import {
   logWarning,
   ReleaseError,
 } from "./context"
-import { listReleasedDependencies, runtimeDependencyFields } from "./dependencies"
+import {
+  type DependencyRangeChange,
+  diffDependencyRanges,
+  formatDependencyRangeChange,
+  listReleasedDependencies,
+  runtimeDependencyFields,
+} from "./dependencies"
 import { readCommand, runCommand } from "./exec"
 import {
   createTag,
@@ -68,6 +74,7 @@ import {
   parseManifest,
   parseReleaseSubject,
   readPackageManifest,
+  readTaggedManifest,
   releaseSubjectPrefix,
   sortByName,
 } from "./packages"
@@ -77,6 +84,7 @@ import {
   type Project,
   readProject,
   readReleaseConventions,
+  type ReleaseConventions,
 } from "./project"
 
 /** Options of a release run. */
@@ -123,6 +131,12 @@ interface ReleaseState extends FoundRelease {
   packages: PackageState[]
 }
 
+/** A change in a runtime dependency of a package. */
+interface PackageRangeChange {
+  name: string
+  change: DependencyRangeChange
+}
+
 /** What a release will do, shown before the confirmation. */
 interface ReleaseSummary {
   subject: string
@@ -132,6 +146,8 @@ interface ReleaseSummary {
   notes: Map<string, string>
   /** Dependencies from the same release of packages without a changeset, by package name. */
   releasedDependencies: Map<string, PackageRelease[]>
+  /** Changes in the runtime dependencies of the public packages since their previous releases. */
+  rangeChanges: PackageRangeChange[]
   publishPlan: PublishPlanEntry[]
   diffStat: string
 }
@@ -487,7 +503,36 @@ async function versionPackages(
       releasedDependencies.set(entry.name, listReleasedDependencies(manifest, releases))
     }
   }
-  return { releases, notes, releasedDependencies }
+  const rangeChanges = await listRangeChanges(ctx, workspace.project, releases, cwd)
+  return { releases, notes, releasedDependencies, rangeChanges }
+}
+
+/**
+ * Lists the changes in the runtime dependencies of the public packages of a versioned work tree since their previous releases.
+ *
+ * Compares with the tag of the previous version, to include ranges edited by hand before the release, or with HEAD when there is no such tag.
+ * The previous version comes from the manifest at HEAD, since `changeset status` reports the highest version of a `fixed` group as `oldVersion`.
+ */
+async function listRangeChanges(
+  ctx: Context,
+  conventions: ReleaseConventions,
+  releases: PackageRelease[],
+  cwd: string,
+) {
+  const changes: PackageRangeChange[] = []
+  for (const entry of releases.filter(entry => !entry.private)) {
+    const head = parseManifest(
+      await readFileAtRevision(ctx, "HEAD", join(entry.dir, "package.json")),
+    )
+    const versioned = await readPackageManifest(cwd, entry.dir)
+    if (head && versioned) {
+      const before = (await readTaggedManifest(ctx, conventions, head, entry.dir)) ?? head
+      for (const change of diffDependencyRanges(before, versioned)) {
+        changes.push({ name: entry.name, change })
+      }
+    }
+  }
+  return changes
 }
 
 /**
@@ -966,6 +1011,14 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
       )
       .join("\n"),
   )
+  if (summary.rangeChanges.length > 0) {
+    ctx.log(`\n${styleText("bold", "Dependency ranges:")}`)
+    ctx.log(
+      summary.rangeChanges
+        .map(({ name, change }) => `  ${name}: ${formatDependencyRangeChange(change)}`)
+        .join("\n"),
+    )
+  }
   ctx.log(`\n${styleText("bold", "Release notes:")}`)
   ctx.log(
     releases

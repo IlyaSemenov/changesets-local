@@ -143,6 +143,29 @@ export async function readPackageManifest(cwd: string, dir: string) {
   return parseManifest(await readFile(join(cwd, dir, "package.json"), "utf8").catch(() => null))
 }
 
+/**
+ * Reads the manifest that a package had when its version was released, from the Git tag of that version.
+ *
+ * Returns null when the tag is missing or does not have the manifest at this path, such as after the package has moved.
+ */
+export async function readTaggedManifest(
+  ctx: Context,
+  conventions: ReleaseConventions,
+  manifest: Manifest,
+  dir: string,
+) {
+  const tag = getReleaseTag(conventions, {
+    name: manifest.name,
+    version: manifest.version,
+    dir,
+    private: manifest.private === true,
+  })
+  if (!tag) {
+    return null
+  }
+  return parseManifest(await readFileAtRevision(ctx, `refs/tags/${tag}`, join(dir, "package.json")))
+}
+
 async function listVersionChanges(
   conventions: ReleaseConventions,
   paths: string[],

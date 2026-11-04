@@ -43,6 +43,7 @@ Do not catalog files or restate information evident from their names and locatio
 - Changesets publishes with pnpm in pnpm projects and with npm otherwise, including Bun; npm publishes `workspace:` and `catalog:` specifiers unchanged.
 - pnpm 11+ has its own settings, such as `pnpm_config_*` variables and `registries` in pnpm-workspace.yaml, which `npm config` does not see.
 - `changeset status --output` reports `changesets: []` not only for dependents of released packages but also for packages of `fixed` groups and on leaving prerelease mode.
+- `changeset status --output` reports the highest version of a `fixed` group as `oldVersion` of its packages; read the version of a package from its manifest.
 - `changeset publish` publishes every unpublished version of a public package, not only the versions of the current release.
 - Changesets 3 defaults `privatePackages` to `{ version: false, tag: false }`, and a boolean sets both.
 - `CHANGESETS_OUTPUT` of `changeset publish` reports only `git-tag` events, written after successful publications and for tagged private packages; it does not report failed or skipped publications.
