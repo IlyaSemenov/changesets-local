@@ -23,6 +23,8 @@ export interface PlannedRelease {
   type: "major" | "minor" | "patch"
   oldVersion: string
   newVersion: string
+  /** Whether a pending changeset names the package. */
+  hasChangeset: boolean
 }
 
 /** An entry of `changeset publish-plan`: a package version that `changeset publish` would publish or only tag. */
@@ -37,7 +39,13 @@ export interface PublishPlanEntry {
 /** Release plan JSON written by `changeset status --output`. */
 interface ReleasePlan {
   changesets: unknown[]
-  releases: Array<{ name: string; type: string; oldVersion: string; newVersion: string }>
+  releases: Array<{
+    name: string
+    type: string
+    oldVersion: string
+    newVersion: string
+    changesets: string[]
+  }>
 }
 
 /** Event written to the `CHANGESETS_OUTPUT` file by `changeset publish`. */
@@ -74,8 +82,10 @@ export async function planRelease(ctx: Context, cwd = ctx.cwd): Promise<PlannedR
     return (await readJsonFile<ReleasePlan>(output))!
   })
   return sortByName(
-    plan.releases.flatMap(({ name, type, oldVersion, newVersion }) =>
-      isBumpType(type) ? [{ name, type, oldVersion, newVersion }] : [],
+    plan.releases.flatMap(({ name, type, oldVersion, newVersion, changesets }) =>
+      isBumpType(type)
+        ? [{ name, type, oldVersion, newVersion, hasChangeset: changesets.length > 0 }]
+        : [],
     ),
   )
 }

@@ -128,6 +128,14 @@ In a monorepo, one release commit releases every package that the pending change
 Each published package gets a `name@version` tag and its own GitHub Release with the notes from its `CHANGELOG.md`.
 Private packages are not published; they are tagged and get GitHub Releases only when `privatePackages.tag` is enabled in the Changesets config.
 
+Changesets also releases packages that have no changeset of their own, for example when a new version of a dependency no longer fits the range they require.
+The confirmation marks these packages and names their dependencies from the same release:
+
+```text
+  core 0.2.0 → 0.3.0 (minor)
+  plugin 0.1.1 → 0.1.2 (patch, no changeset: depends on core@0.3.0)
+```
+
 The confirmation lists exactly what `changeset publish` will publish.
 If it would also publish a version outside the release, such as a new public package without a changeset, the release stops before the confirmation; release that package with a changeset or make it private.
 

@@ -23,6 +23,7 @@ import {
   logWarning,
   ReleaseError,
 } from "./context"
+import { listReleasedDependencies, runtimeDependencyFields } from "./dependencies"
 import { readCommand, runCommand } from "./exec"
 import {
   createTag,
@@ -129,6 +130,8 @@ interface ReleaseSummary {
   releases: PackageRelease[]
   /** Release notes by package name. */
   notes: Map<string, string>
+  /** Dependencies from the same release of packages without a changeset, by package name. */
+  releasedDependencies: Map<string, PackageRelease[]>
   publishPlan: PublishPlanEntry[]
   diffStat: string
 }
@@ -475,11 +478,16 @@ async function versionPackages(
   }
   await assertUnreleased(ctx, workspace, plan, releases)
   const notes = new Map<string, string>()
+  const releasedDependencies = new Map<string, PackageRelease[]>()
   for (const entry of releases) {
     const changelog = await readFile(join(cwd, entry.dir, changelogFile), "utf8").catch(() => "")
     notes.set(entry.name, getReleaseNotes(changelog, entry))
+    if (!plan.find(planned => planned.name === entry.name)!.hasChangeset) {
+      const manifest = (await readPackageManifest(cwd, entry.dir))!
+      releasedDependencies.set(entry.name, listReleasedDependencies(manifest, releases))
+    }
   }
-  return { releases, notes }
+  return { releases, notes, releasedDependencies }
 }
 
 /**
@@ -536,7 +544,7 @@ async function assertPublishable(
       }
     }
     if (project.packageManager !== "pnpm") {
-      for (const field of ["dependencies", "optionalDependencies", "peerDependencies"] as const) {
+      for (const field of runtimeDependencyFields) {
         for (const [dependency, specifier] of Object.entries(manifest[field] ?? {})) {
           if (workspaceSpecifierPrefixes.some(prefix => specifier.startsWith(prefix))) {
             throw new ReleaseError(
@@ -952,7 +960,10 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
   ctx.log(styleText("bold", summary.subject))
   ctx.log(
     summary.plan
-      .map(entry => `  ${entry.name} ${entry.oldVersion} → ${entry.newVersion} (${entry.type})`)
+      .map(
+        entry =>
+          `  ${entry.name} ${entry.oldVersion} → ${entry.newVersion} (${formatBump(entry, summary.releasedDependencies.get(entry.name))})`,
+      )
       .join("\n"),
   )
   ctx.log(`\n${styleText("bold", "Release notes:")}`)
@@ -985,6 +996,15 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
         : []),
     ]),
   )
+}
+
+/** Formats the bump type and the annotation for a package without a changeset, including its released dependencies. */
+function formatBump(entry: PlannedRelease, dependencies: PackageRelease[] = []) {
+  if (entry.hasChangeset) {
+    return entry.type
+  }
+  const reason = dependencies.length > 0 ? `: depends on ${formatVersions(dependencies)}` : ""
+  return `${entry.type}, no changeset${reason}`
 }
 
 function formatState(state: ReleaseState) {

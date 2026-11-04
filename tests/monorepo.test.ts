@@ -167,6 +167,18 @@ describe("monorepo release", () => {
     expect(fixture.state().npm.publishes).toEqual([])
   })
 
+  it("marks a package without a changeset and without dependencies in the release", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesetsConfig: { fixed: [["alpha", "@fixture/beta"]] },
+      changesets: { fix: changeset("patch", "Fix alpha.", ["alpha"]) },
+    })
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain("  alpha 1.0.0 → 1.0.1 (patch)\n")
+    expect(result.output).toContain("  @fixture/beta 1.0.0 → 1.0.1 (patch, no changeset)\n")
+  })
+
   it("previews the committed Changesets configuration in a dry run", async () => {
     const fixture = createFixture({
       monorepo: true,
@@ -209,6 +221,19 @@ describe("monorepo release with dependent packages", () => {
     expectPackageReleased(fixture, "packages/alpha", "2.0.0")
     expectPackageReleased(fixture, "packages/beta", "1.0.1")
   })
+
+  it.each([{ dryRun: false }, { dryRun: true }])(
+    "explains the release of a package without a changeset with %o",
+    async options => {
+      const fixture = createDependentFixture()
+      const result = await fixture.run(options)
+      expect(result.error).toBeUndefined()
+      expect(result.output).toContain("  alpha 1.0.0 → 2.0.0 (major)\n")
+      expect(result.output).toContain(
+        "  @fixture/beta 1.0.0 → 1.0.1 (patch, no changeset: depends on alpha@2.0.0)\n",
+      )
+    },
+  )
 
   it("resumes after the dependent package fails to publish", async () => {
     const fixture = createDependentFixture()
