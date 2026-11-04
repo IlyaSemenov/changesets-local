@@ -6,6 +6,7 @@ import {
   createJsonEditCommand,
   expectPackageReleased,
   type Fixture,
+  type FixtureOptions,
   privatePackage,
 } from "./fixture"
 
@@ -483,6 +484,155 @@ describe("dependency ranges of packages outside the release", () => {
     const result = await fixture.run({ resume: true })
     expect(result.error).toBeUndefined()
     expect(result.output).not.toContain("is published with")
+  })
+})
+
+describe("Latest GitHub Release", () => {
+  const onlyBeta = { fix: changeset("patch", "Fix a bug.", ["@fixture/beta"]) }
+
+  /** Creates a monorepo in the GitHub repository named after `alpha`. */
+  function createMainPackageFixture(options: FixtureOptions = {}) {
+    const fixture = createFixture({ monorepo: true, ...options })
+    fixture.updateState(state => {
+      state.gh.repo = "owner/alpha"
+    })
+    return fixture
+  }
+
+  /** Pushes the tag of the current version of `alpha`, which marks it as released. */
+  function pushMainPackageTag(fixture: Fixture) {
+    fixture.git("tag", "alpha@1.0.0")
+    fixture.git("push", "--quiet", "origin", "alpha@1.0.0")
+  }
+
+  /** Returns the `--latest` option of each created GitHub Release by tag, or null without the option. */
+  function getLatestMarks(fixture: Fixture) {
+    return Object.fromEntries(
+      fixture.state().gh.releases.map(entry => [entry.tag, entry.latest ?? null]),
+    )
+  }
+
+  it("gives the mark to the main package and keeps it from the others", async () => {
+    const fixture = createMainPackageFixture()
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "Create GitHub Releases in owner/alpha: alpha@1.1.0 (latest), @fixture/beta@1.0.1\n",
+    )
+    expect(getLatestMarks(fixture)).toEqual({ "alpha@1.1.0": true, "@fixture/beta@1.0.1": false })
+  })
+
+  it("shows the release that takes the mark in a dry run", async () => {
+    const fixture = createMainPackageFixture()
+    const result = await fixture.run({ dryRun: true })
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "Create GitHub Releases in owner/alpha: alpha@1.1.0 (latest), @fixture/beta@1.0.1\n",
+    )
+  })
+
+  it("leaves the mark in place when the main package is outside the release", async () => {
+    const fixture = createMainPackageFixture({ changesets: onlyBeta })
+    pushMainPackageTag(fixture)
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain("Create GitHub Release in owner/alpha: @fixture/beta@1.0.1\n")
+    expect(getLatestMarks(fixture)).toEqual({ "@fixture/beta@1.0.1": false })
+  })
+
+  it("finds the tag of the main package without a local copy of it", async () => {
+    const fixture = createMainPackageFixture({ changesets: onlyBeta })
+    pushMainPackageTag(fixture)
+    fixture.git("tag", "--delete", "alpha@1.0.0")
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(getLatestMarks(fixture)).toEqual({ "@fixture/beta@1.0.1": false })
+  })
+
+  it("leaves the mark to GitHub without a package named after the repository", async () => {
+    const fixture = createFixture({ monorepo: true })
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(getLatestMarks(fixture)).toEqual({
+      "alpha@1.1.0": null,
+      "@fixture/beta@1.0.1": null,
+    })
+  })
+
+  it("does not take a private root package named after the repository for the main package", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      packageJson: { name: "core", version: "1.0.0" },
+    })
+    fixture.updateState(state => {
+      state.gh.repo = "owner/core"
+    })
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(getLatestMarks(fixture)).toEqual({
+      "alpha@1.1.0": null,
+      "@fixture/beta@1.0.1": null,
+    })
+  })
+
+  it("does not take a package without the tag of its version for the main package", async () => {
+    const fixture = createMainPackageFixture({ changesets: onlyBeta })
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(getLatestMarks(fixture)).toEqual({ "@fixture/beta@1.0.1": null })
+  })
+
+  it("leaves prereleases to GitHub", async () => {
+    const fixture = createMainPackageFixture({ preTag: "beta" })
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      "Create GitHub Releases in owner/alpha: alpha@1.1.0-beta.0 (prerelease), @fixture/beta@1.0.1-beta.0 (prerelease)\n",
+    )
+    expect(getLatestMarks(fixture)).toEqual({
+      "alpha@1.1.0-beta.0": null,
+      "@fixture/beta@1.0.1-beta.0": null,
+    })
+  })
+
+  describe("on resume", () => {
+    /** Runs a release that fails to create its GitHub Releases, then lets GitHub accept them again. */
+    async function failGitHubReleases(fixture: Fixture) {
+      fixture.updateState(state => {
+        state.gh.createFailure = true
+      })
+      expect((await fixture.run()).error?.message).toContain("HTTP 502")
+      fixture.updateState(state => {
+        state.gh.createFailure = false
+      })
+    }
+
+    it("gives the mark to the main package and keeps it from the others", async () => {
+      const fixture = createMainPackageFixture()
+      await failGitHubReleases(fixture)
+      expect((await fixture.run({ resume: true })).error).toBeUndefined()
+      expect(getLatestMarks(fixture)).toEqual({ "alpha@1.1.0": true, "@fixture/beta@1.0.1": false })
+    })
+
+    it("keeps the mark from the others after the main package got its GitHub Release", async () => {
+      const fixture = createMainPackageFixture()
+      await failGitHubReleases(fixture)
+      fixture.updateState(state => {
+        state.gh.releases.push({
+          tag: "alpha@1.1.0",
+          title: "alpha@1.1.0",
+          notes: "",
+          prerelease: false,
+        })
+      })
+      expect((await fixture.run({ resume: true })).error).toBeUndefined()
+      expect(getLatestMarks(fixture)["@fixture/beta@1.0.1"]).toBe(false)
+    })
+
+    it("finds the main package at the release commit after HEAD moved past it", async () => {
+      const fixture = createMainPackageFixture({ changesets: onlyBeta })
+      pushMainPackageTag(fixture)
+      await failGitHubReleases(fixture)
+      commitManifest(fixture, "packages/alpha", { version: "2.0.0" })
+      expect((await fixture.run({ resume: true })).error).toBeUndefined()
+      expect(getLatestMarks(fixture)).toEqual({ "@fixture/beta@1.0.1": false })
+    })
   })
 })
 

@@ -47,6 +47,8 @@ export interface FakeState {
       title: string
       notes: string
       prerelease: boolean
+      /** The `--latest` option of the creation; absent without the option, when GitHub decides. */
+      latest?: boolean
       draft?: boolean
     }>
     /** Makes release creation fail. */

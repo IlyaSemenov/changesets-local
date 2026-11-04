@@ -62,6 +62,7 @@ import {
   type GitHubReleaseState,
   resolveGitHubRepo,
 } from "./github"
+import { findCommitMainPackage, findWorkTreeMainPackage, getLatestMark } from "./latest"
 import {
   assertCanPublish,
   assertNpmjsRegistry,
@@ -72,6 +73,7 @@ import {
 import {
   formatReleaseSubject,
   getManifestDir,
+  isPrerelease,
   listCommitVersionChanges,
   listWorkTreeVersionChanges,
   type PackageRelease,
@@ -146,6 +148,8 @@ interface ReleaseSummary {
   subject: string
   plan: PlannedRelease[]
   releases: PackageRelease[]
+  /** Name of the main package, which may be outside the release, or null when GitHub decides which release is `Latest`. */
+  mainPackage: string | null
   /** Release notes by package name. */
   notes: Map<string, string>
   /** Dependencies from the same release of packages without a changeset, by package name. */
@@ -510,7 +514,21 @@ async function versionPackages(
     releases,
     cwd,
   )
-  return { releases, notes, releasedDependencies, rangeChanges, unreleasedRangeChanges }
+  const mainPackage = await findWorkTreeMainPackage(
+    ctx,
+    { repo: workspace.repo, remote: workspace.upstream.remote },
+    workspace.project,
+    releases,
+    cwd,
+  )
+  return {
+    releases,
+    mainPackage,
+    notes,
+    releasedDependencies,
+    rangeChanges,
+    unreleasedRangeChanges,
+  }
 }
 
 /**
@@ -959,14 +977,23 @@ async function finishRelease(
       await pushTags(ctx, upstream.remote, unpushedTags)
     }
 
-    for (const entry of tagged.filter(entry => entry.githubRelease === "missing")) {
-      logStep(ctx, `Creating GitHub Release ${entry.tag}`)
-      const changelog = await readFileAtRevision(ctx, state.commit, join(entry.dir, changelogFile))
-      await createGitHubRelease(ctx, repo, {
-        tag: entry.tag!,
-        notes: getReleaseNotes(changelog ?? "", entry),
-        prerelease: isPrerelease(entry.version),
-      })
+    const missingReleases = tagged.filter(entry => entry.githubRelease === "missing")
+    if (missingReleases.length > 0) {
+      const mainPackage = await findCommitMainPackage(ctx, { repo, remote: upstream.remote }, state)
+      for (const entry of missingReleases) {
+        logStep(ctx, `Creating GitHub Release ${entry.tag}`)
+        const changelog = await readFileAtRevision(
+          ctx,
+          state.commit,
+          join(entry.dir, changelogFile),
+        )
+        await createGitHubRelease(ctx, repo, {
+          tag: entry.tag!,
+          notes: getReleaseNotes(changelog ?? "", entry),
+          prerelease: isPrerelease(entry.version),
+          latest: getLatestMark(entry, mainPackage),
+        })
+      }
     }
   } catch (error) {
     if (error instanceof ReleaseError) {
@@ -1031,10 +1058,6 @@ function getReleaseNotes(changelog: string, entry: { name: string; version: stri
   return notes
 }
 
-function isPrerelease(version: string) {
-  return version.includes("-")
-}
-
 function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummary) {
   const { project, upstream, repo, npmUser } = workspace
   const { releases, publishPlan } = summary
@@ -1083,7 +1106,7 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
       ...(tagged.length > 0
         ? [
             `Create and push ${tagged.length === 1 ? "tag" : "tags"} ${tagged.map(entry => entry.tag).join(", ")}`,
-            `Create ${tagged.length === 1 ? "GitHub Release" : "GitHub Releases"} in ${repo}: ${tagged.map(entry => `${entry.tag}${isPrerelease(entry.version) ? " (prerelease)" : ""}`).join(", ")}`,
+            `Create ${tagged.length === 1 ? "GitHub Release" : "GitHub Releases"} in ${repo}: ${tagged.map(entry => `${entry.tag}${formatGitHubReleaseMark(entry, summary.mainPackage)}`).join(", ")}`,
           ]
         : []),
     ]),
@@ -1095,6 +1118,14 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
       logWarning(ctx, formatUnreleasedRangeWarning(entry))
     }
   }
+}
+
+/** Formats the annotation of a GitHub Release in the steps of a release: a prerelease, or the release that takes the `Latest` mark. */
+function formatGitHubReleaseMark(entry: PackageRelease, mainPackage: string | null) {
+  if (isPrerelease(entry.version)) {
+    return " (prerelease)"
+  }
+  return getLatestMark(entry, mainPackage) ? " (latest)" : ""
 }
 
 /** Formats the bump type and the annotation for a package without a changeset, including its released dependencies. */

@@ -141,6 +141,12 @@ export async function listCommitPaths(ctx: Context, commit: string) {
   return output.split("\0").filter(Boolean)
 }
 
+/** Lists every file of a commit. */
+export async function listCommitTreePaths(ctx: Context, commit: string) {
+  const output = await readCommand(ctx, "git", ["ls-tree", "-r", "--name-only", "-z", commit])
+  return output.split("\0").filter(Boolean)
+}
+
 /** Lists the tracked `package.json` files of a work tree at any depth. */
 export async function listTrackedManifestPaths(ctx: Context, cwd = ctx.cwd) {
   const output = await readCommand(ctx, "git", ["ls-files", "-z", "--", ":(glob)**/package.json"], {

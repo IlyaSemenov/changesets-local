@@ -138,6 +138,9 @@ In a monorepo, one release commit releases every package that the pending change
 Each published package gets a `name@version` tag and its own GitHub Release with the notes from its `CHANGELOG.md`.
 Private packages are not published; they are tagged and get GitHub Releases only when `privatePackages.tag` is enabled in the Changesets config.
 
+To keep the `Latest` mark of GitHub Releases on your main package, name it after the GitHub repository, such as `core` in `owner/core`.
+Releases of other packages then leave the mark in place.
+
 Changesets also releases packages that have no changeset of their own, for example when a new version of a dependency no longer fits the range they require.
 The confirmation marks these packages and names their dependencies from the same release:
 

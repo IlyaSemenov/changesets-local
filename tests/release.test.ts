@@ -57,6 +57,15 @@ describe("release", () => {
     expect(fixture.state().gh.releases[0]!.prerelease).toBe(true)
   })
 
+  it("leaves the Latest GitHub Release of a single package to GitHub", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.gh.repo = `owner/${packageName}`
+    })
+    expect((await fixture.run()).error).toBeUndefined()
+    expect(fixture.state().gh.releases[0]!.latest).toBeUndefined()
+  })
+
   it("publishes a new package of an npm scope that the user belongs to", async () => {
     const name = "@new/package"
     const fixture = createFixture({

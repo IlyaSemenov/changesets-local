@@ -150,6 +150,11 @@ function createRelease({ args, state, stateDir }: FakeCall) {
         title: option("--title")!,
         notes,
         prerelease: args.includes("--prerelease"),
+        latest: args.includes("--latest")
+          ? true
+          : args.includes("--latest=false")
+            ? false
+            : undefined,
       })
     }
   })

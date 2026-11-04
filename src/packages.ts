@@ -75,6 +75,11 @@ export function getReleaseTag(
   return conventions.monorepo ? `${release.name}@${release.version}` : `v${release.version}`
 }
 
+/** Checks whether a version is a prerelease, such as `1.0.0-beta.0`. */
+export function isPrerelease(version: string) {
+  return version.includes("-")
+}
+
 /** Start of every release commit subject. */
 export const releaseSubjectPrefix = "Release "
 
@@ -204,6 +209,7 @@ async function listVersionChanges(
   return sortByName(releases)
 }
 
-function isManifestPath(path: string) {
+/** Checks whether a path from the repository root is a `package.json` file. */
+export function isManifestPath(path: string) {
   return path === "package.json" || path.endsWith("/package.json")
 }

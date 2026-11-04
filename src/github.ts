@@ -84,11 +84,15 @@ export async function getGitHubReleaseState(
   return release === null ? "missing" : release.isDraft ? "draft" : "published"
 }
 
-/** Creates a GitHub Release for an existing remote tag, titled with the tag name. */
+/**
+ * Creates a GitHub Release for an existing remote tag, titled with the tag name.
+ *
+ * `latest` makes the release take the `Latest` mark or leave it where it is; without it, GitHub decides.
+ */
 export function createGitHubRelease(
   ctx: Context,
   repo: string,
-  release: { tag: string; notes: string; prerelease: boolean },
+  release: { tag: string; notes: string; prerelease: boolean; latest: boolean | undefined },
 ) {
   const args = [
     "release",
@@ -104,6 +108,9 @@ export function createGitHubRelease(
   ]
   if (release.prerelease) {
     args.push("--prerelease")
+  }
+  if (release.latest !== undefined) {
+    args.push(release.latest ? "--latest" : "--latest=false")
   }
   return runCommand(ctx, "gh", args, { input: release.notes })
 }
