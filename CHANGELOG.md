@@ -1,5 +1,11 @@
 # changesets-local
 
+## 1.5.0
+
+### Minor Changes
+
+- 198f592: Keep the `Latest` mark of GitHub Releases in a monorepo on the package named after the repository.
+
 ## 1.4.0
 
 ### Minor Changes
