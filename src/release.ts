@@ -163,6 +163,8 @@ interface ReleaseSummary {
   unreleasedRangeChanges: UnreleasedRangeChanges[]
   publishPlan: PublishPlanEntry[]
   diffStat: string
+  /** Commit whose CI checks the release reads after the confirmation, or null when it does not read them. */
+  ciCommit: string | null
 }
 
 const changelogFile = "CHANGELOG.md"
@@ -173,7 +175,7 @@ const workspaceSpecifierPrefixes = ["workspace:", "catalog:"]
 /**
  * Releases the packages of the current repository.
  *
- * By default, versions the packages from pending changesets, asks for confirmation, and publishes the release.
+ * By default, versions the packages from pending changesets, asks for confirmation, runs the checks, and publishes the release.
  * With `resume`, finishes the release of the newest release commit instead, if it is incomplete.
  */
 export async function release(ctx: Context, options: ReleaseOptions = {}) {
@@ -274,11 +276,11 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
     if (workspace.branch === workspace.project.baseBranch && !syncProblem) {
       await previewChecks(ctx, workspace.repo, head)
     }
-    await previewRelease(ctx, workspace)
+    await previewRelease(ctx, workspace, head)
     return
   }
   const plan = await planPendingRelease(ctx, ctx.cwd)
-  // Asks about already failed checks before versioning; the others are awaited after release:check.
+  // Asks about already failed checks before versioning; the others are awaited after the confirmation and release:check.
   const pendingChecks = await confirmFailedChecks(ctx, workspace.repo, head)
 
   const { commit, subject, releases } = await createReleaseCommit(ctx, workspace, plan, {
@@ -444,9 +446,9 @@ async function assertUnreleased(ctx: Context, workspace: Workspace, releases: Pa
 }
 
 /**
- * Versions the packages in the working tree, runs `release:check`, and commits the result after confirmation.
+ * Versions the packages in the working tree, asks for confirmation, runs `release:check`, and commits the result.
  *
- * With `pendingChecks`, waits for the CI checks before the confirmation; checks can appear while versioning and release:check run.
+ * With `pendingChecks`, waits for the CI checks after the confirmation; checks can appear while the release is prepared.
  * Restores the working tree when anything fails before the commit.
  */
 async function createReleaseCommit(
@@ -469,19 +471,32 @@ async function createReleaseCommit(
     }
     const publishPlan = await assertPublishable(ctx, workspace, getTagged(releases), ctx.cwd)
     await assertNpmPermissions(ctx, workspace, releases)
-    if (project.hasReleaseCheck) {
-      await runReleaseCheck(ctx, workspace)
-    }
-    if (options.pendingChecks) {
-      await awaitChecks(ctx, workspace.repo, options.pendingChecks)
-    }
 
-    await stageWorkTree(ctx)
+    const confirmedTree = await stageWorkTree(ctx)
     const diffStat = await readCommand(ctx, "git", ["diff", "--cached", "--stat"])
-    printSummary(ctx, workspace, { subject, plan, ...versioned, publishPlan, diffStat })
+    printSummary(ctx, workspace, {
+      subject,
+      plan,
+      ...versioned,
+      publishPlan,
+      diffStat,
+      ciCommit: options.pendingChecks?.commit ?? null,
+    })
     if (!(await ctx.confirm(`Release ${formatVersions(releases)}?`))) {
       throw new ReleaseError("Release cancelled.")
     }
+
+    const checksStartedAt = Date.now()
+    if (project.hasReleaseCheck) {
+      await runReleaseCheck(ctx, workspace)
+    }
+    const answeredAboutCi =
+      options.pendingChecks !== null &&
+      (await awaitChecks(ctx, workspace.repo, options.pendingChecks))
+    if (!answeredAboutCi) {
+      await awaitUserBeforePublishing(ctx, workspace, releases, checksStartedAt)
+    }
+    await assertUnchangedSinceConfirmation(ctx, workspace, confirmedTree)
 
     logStep(ctx, "Committing")
     await runCommand(ctx, "git", ["commit", "--quiet", "--message", subject])
@@ -733,6 +748,47 @@ async function runReleaseCheck(ctx: Context, workspace: Workspace) {
   }
 }
 
+/**
+ * Waits for the user before a publication when the checks took long enough for them to have left.
+ *
+ * Publishing may ask for npm 2FA, which the user can miss, and by then the release commit is on the remote; until the wait ends, Ctrl+C still cancels cleanly in a new release.
+ */
+async function awaitUserBeforePublishing(
+  ctx: Context,
+  workspace: Workspace,
+  packages: PackageRelease[],
+  checksStartedAt: number,
+) {
+  const publications = packages.filter(entry => !entry.private)
+  if (publications.length === 0 || Date.now() - checksStartedAt < ctx.presenceTimeout) {
+    return
+  }
+  // The output of the checks has pushed the summary away, so the message names the release again.
+  const message = `Press Enter to publish ${formatVersions(publications)} as ${workspace.npmUser}, Ctrl+C to cancel.`
+  if (!(await ctx.waitForUser(message))) {
+    throw new ReleaseError("Release cancelled.")
+  }
+}
+
+/** Fails when the work tree or the branches changed while the checks ran or the release waited for the user, before these changes reach the release commit. */
+async function assertUnchangedSinceConfirmation(
+  ctx: Context,
+  workspace: Workspace,
+  confirmedTree: string,
+) {
+  const tree = await stageWorkTree(ctx)
+  if (tree !== confirmedTree) {
+    throw new ReleaseError(
+      `The working tree changed after the confirmation:\n${formatList(await listTreeDifferences(ctx, confirmedTree, tree))}\nRelease again without changing files during the release.`,
+    )
+  }
+  await fetchRemote(ctx, workspace.upstream.remote)
+  const syncProblem = await describeSyncProblem(ctx, workspace)
+  if (syncProblem) {
+    throw new ReleaseError(syncProblem)
+  }
+}
+
 /** Fails unless HEAD is the release commit and the work tree has no changes, so that `changeset publish` publishes the commit. */
 async function assertWorkTreeAtCommit(ctx: Context, commit: string) {
   const short = commit.slice(0, 7)
@@ -763,7 +819,7 @@ async function restoreWorkTree(ctx: Context) {
 }
 
 /** Shows the release that pending changesets would produce, versioning a temporary worktree instead of the project. */
-async function previewRelease(ctx: Context, workspace: Workspace) {
+async function previewRelease(ctx: Context, workspace: Workspace, head: string) {
   logStep(ctx, "Versioning in a temporary worktree")
   const tempDir = await mkdtemp(join(tmpdir(), "changesets-local-"))
   const tree = join(tempDir, "tree")
@@ -793,6 +849,7 @@ async function previewRelease(ctx: Context, workspace: Workspace) {
         ...versioned,
         publishPlan,
         diffStat,
+        ciCommit: head,
       }
     } finally {
       // Runs even after Ctrl+C, which aborts the context signal.
@@ -951,6 +1008,7 @@ async function finishRelease(
   try {
     // Checked before pushing, so that a release commit that cannot be published stays local.
     if (unpublished.length > 0) {
+      const checksStartedAt = Date.now()
       if (resumed && project.hasReleaseCheck) {
         try {
           await runReleaseCheck(ctx, workspace)
@@ -962,6 +1020,7 @@ async function finishRelease(
       await assertPublishable(ctx, workspace, expectedPublication, ctx.cwd)
       if (resumed) {
         await assertNpmPermissions(ctx, workspace, unpublished)
+        await awaitUserBeforePublishing(ctx, workspace, unpublished, checksStartedAt)
       }
     }
 
@@ -1135,6 +1194,8 @@ function printSummary(ctx: Context, workspace: Workspace, summary: ReleaseSummar
   ctx.log(`\n${styleText("bold", "Steps:")}`)
   ctx.log(
     formatList([
+      ...(project.hasReleaseCheck ? ["Run release:check"] : []),
+      ...(summary.ciCommit ? [`Check CI on ${summary.ciCommit.slice(0, 7)}`] : []),
       `Commit "${summary.subject}"`,
       `Push it to ${upstream.name}`,
       ...(publications.length > 0

@@ -187,6 +187,59 @@ describe("failure after the release commit", () => {
     )
   })
 
+  it("waits for the user between release:check and publishing on resume", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": "exit 0" } } })
+    fixture.updateState(state => {
+      state.npm.publishFailures[packageName] = "before-upload"
+    })
+    await runInterrupted(fixture, "`changeset publish` failed.")
+    fixture.updateState(state => {
+      state.npm.publishFailures = {}
+    })
+    let published: unknown
+    const result = await fixture.run(
+      { resume: true },
+      {
+        waitForUser: () => {
+          published = fixture.state().npm.publishes.length
+          return true
+        },
+      },
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.waits).toHaveLength(1)
+    expect(result.waits[0]).toContain(`Press Enter to publish ${packageName}@1.0.1 as`)
+    expect(published).toBe(0)
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("stays resumable when the user cancels the wait on resume", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.npm.publishFailures[packageName] = "before-upload"
+    })
+    await runInterrupted(fixture, "`changeset publish` failed.")
+    fixture.updateState(state => {
+      state.npm.publishFailures = {}
+    })
+    const result = await fixture.run({ resume: true }, { waitForUser: () => false })
+    expect(result.error?.message).toContain("Release cancelled.")
+    expect(result.error?.message).toContain("run `changesets-local --resume` to finish it")
+    expect(fixture.state().npm.publishes).toEqual([])
+    await resume(fixture)
+  })
+
+  it("does not wait for the user on resume when nothing is left to publish", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    const result = await fixture.run({ resume: true }, { waitForUser: () => true })
+    expect(result.error).toBeUndefined()
+    expect(result.waits).toEqual([])
+    expectReleased(fixture, "1.0.1")
+  })
+
   it("does not publish on resume when release:check fails", async () => {
     const fixture = createFixture({
       packageJson: {

@@ -17,12 +17,16 @@ export interface Context {
   interactive: boolean
   /** Milliseconds between reads of a state that changes remotely, such as running CI checks. */
   pollInterval: number
+  /** Milliseconds that checks may take without the release waiting for the user before publishing. */
+  presenceTimeout: number
   /** Aborts the release before the next subprocess starts, or while it waits. */
   signal?: AbortSignal
   /** Prints a line of output. */
   log: (line: string) => void
   /** Asks a yes/no question and resolves to the answer. */
   confirm: (question: string) => Promise<boolean>
+  /** Calls the user back to the terminal and resolves to true when they press Enter, or to false when they cancel with Ctrl+C. */
+  waitForUser: (message: string) => Promise<boolean>
 }
 
 /** An expected failure with an actionable message for the user, printed without a stack trace. */

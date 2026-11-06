@@ -141,7 +141,7 @@ describe("release:check", () => {
     const head = fixture.git("rev-parse", "HEAD")
     const result = await fixture.run()
     expect(result.error?.message).toContain("`bun run release:check` failed with exit code 3")
-    expect(result.questions).toEqual([])
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
     expect(fixture.git("rev-parse", "HEAD")).toBe(head)
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
     expect(existsSync(join(fixture.dir, "CHANGELOG.md"))).toBe(false)
@@ -198,6 +198,9 @@ describe("CI checks", () => {
     fixture.git("push", "--quiet")
   }
 
+  /** Answers yes to the release confirmation and no to the question about failed CI. */
+  const declineFailedCi = (question: string) => question !== "Release despite the failed CI?"
+
   it("waits for running checks of the released commit after release:check", async () => {
     const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
     const short = setChecks(fixture, {
@@ -224,9 +227,12 @@ describe("CI checks", () => {
   it("asks about a check that appears and fails while the release is prepared", async () => {
     const fixture = createFixture()
     setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 1 }] })
-    const result = await fixture.run({}, { confirm: false })
+    const result = await fixture.run({}, { confirm: declineFailedCi })
     expect(result.error?.message).toBe("Release cancelled.")
-    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.questions).toEqual([
+      `Release ${packageName}@1.0.1?`,
+      "Release despite the failed CI?",
+    ])
     expect(result.output).toContain("▸ Versioning")
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
   })
@@ -235,9 +241,12 @@ describe("CI checks", () => {
     const fixture = createFixture()
     pushWorkflow(fixture)
     setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 2 }] })
-    const result = await fixture.run({}, { confirm: false })
+    const result = await fixture.run({}, { confirm: declineFailedCi })
     expect(result.error?.message).toBe("Release cancelled.")
-    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.questions).toEqual([
+      `Release ${packageName}@1.0.1?`,
+      "Release despite the failed CI?",
+    ])
   })
 
   it("waits for GitHub to create the checks before reading them again", async () => {
@@ -246,7 +255,7 @@ describe("CI checks", () => {
     setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 2 }] })
     const result = await fixture.run({}, { abortOnLog: "Waiting for GitHub to create the checks" })
     expect(result.error?.message).toBe("Interrupted.")
-    expect(result.questions).toEqual([])
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
     expect(
       fixture.calls("gh").filter(([, , endpoint]) => endpoint?.includes("/check-runs")),
     ).toHaveLength(2)
@@ -327,7 +336,7 @@ describe("CI checks", () => {
         "s",
       ),
     )
-    expect(result.questions).toEqual([])
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
     expect(fixture.state().npm.publishes).toEqual([])
   })
@@ -401,9 +410,12 @@ describe("CI checks", () => {
         { name: "slow", conclusion: "success", pendingReads: 1000 },
       ],
     })
-    const result = await fixture.run({}, { confirm: false })
+    const result = await fixture.run({}, { confirm: declineFailedCi })
     expect(result.error?.message).toBe("Release cancelled.")
-    expect(result.questions).toEqual(["Release despite the failed CI?"])
+    expect(result.questions).toEqual([
+      `Release ${packageName}@1.0.1?`,
+      "Release despite the failed CI?",
+    ])
     expect(result.output).toContain("▸ Versioning")
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
   })
@@ -413,7 +425,7 @@ describe("CI checks", () => {
     setChecks(fixture, { runs: [{ name: "test", conclusion: "success", pendingReads: 1000 }] })
     const result = await fixture.run({}, { abortOnLog: "Waiting for CI" })
     expect(result.error?.message).toBe("Interrupted.")
-    expect(result.questions).toEqual([])
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.1?`])
     expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
     expect(fixture.state().npm.publishes).toEqual([])
   })
@@ -426,6 +438,34 @@ describe("CI checks", () => {
     expect(result.questions).toEqual([
       "Release despite the failed CI?",
       `Release ${packageName}@1.0.1?`,
+    ])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("does not wait for the user who has just answered about failed checks", async () => {
+    const fixture = createFixture()
+    setChecks(fixture, { runs: [{ name: "test", conclusion: "failure", missingReads: 1 }] })
+    const result = await fixture.run({}, { waitForUser: () => true })
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([
+      `Release ${packageName}@1.0.1?`,
+      "Release despite the failed CI?",
+    ])
+    expect(result.waits).toEqual([])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("waits for the user after long checks when the failed CI was accepted before them", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
+    setChecks(fixture, { statuses: [{ context: "ci/external", state: "failure" }] })
+    const result = await fixture.run({}, { waitForUser: () => true })
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([
+      "Release despite the failed CI?",
+      `Release ${packageName}@1.0.1?`,
+    ])
+    expect(result.waits).toEqual([
+      `Press Enter to publish ${packageName}@1.0.1 as ${fixture.state().npm.user}, Ctrl+C to cancel.`,
     ])
     expectReleased(fixture, "1.0.1")
   })
@@ -462,6 +502,119 @@ describe("CI checks", () => {
     expect(result.output).toContain(
       `⚠ CI failed on ${short}:\n  - test: https://github.com/owner/fixture/runs/test`,
     )
+  })
+})
+
+describe("checks after the confirmation", () => {
+  const releaseCheck = `node -e "require('fs').mkdirSync('dist');require('fs').writeFileSync('dist/check', '')"`
+
+  it("shows the release before running the checks", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
+    const short = fixture.git("rev-parse", "--short=7", "HEAD")
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.output).toContain(
+      `Steps:\n  - Run release:check\n  - Check CI on ${short}\n  - Commit "Release ${packageName}@1.0.1"`,
+    )
+    expect(result.output.indexOf("Steps:")).toBeLessThan(
+      result.output.indexOf("$ bun run release:check"),
+    )
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("does not run the checks when the confirmation is declined", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": releaseCheck } } })
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.output).not.toContain("$ bun run release:check")
+    expect(existsSync(join(fixture.dir, "dist", "check"))).toBe(false)
+  })
+
+  it("waits for the user between long checks and the release commit", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": releaseCheck } } })
+    let checked = false
+    let commits = ""
+    const result = await fixture.run(
+      {},
+      {
+        waitForUser: () => {
+          checked = existsSync(join(fixture.dir, "dist", "check"))
+          commits = fixture.git("rev-list", "--count", "HEAD")
+          return true
+        },
+      },
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.waits).toEqual([
+      `Press Enter to publish ${packageName}@1.0.1 as ${fixture.state().npm.user}, Ctrl+C to cancel.`,
+    ])
+    expect(checked).toBe(true)
+    expect(commits).toBe("1")
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("does not wait for the user after quick checks", async () => {
+    const fixture = createFixture({ packageJson: { scripts: { "release:check": "true" } } })
+    const result = await fixture.run({}, { waitForUser: () => true, presenceTimeout: 60_000 })
+    expect(result.error).toBeUndefined()
+    expect(result.waits).toEqual([])
+    expectReleased(fixture, "1.0.1")
+  })
+
+  it("restores the working tree when the user cancels the wait", async () => {
+    const fixture = createFixture()
+    const head = fixture.git("rev-parse", "HEAD")
+    const result = await fixture.run({}, { waitForUser: () => false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(fixture.git("rev-parse", "HEAD")).toBe(head)
+    expect(fixture.remoteGit("rev-parse", "main")).toBe(head)
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
+  it("does not commit when the working tree changes after the confirmation", async () => {
+    const fixture = createFixture()
+    const head = fixture.git("rev-parse", "HEAD")
+    const result = await fixture.run(
+      {},
+      {
+        waitForUser: () => {
+          fixture.write("edited.txt", "")
+          return true
+        },
+      },
+    )
+    expect(result.error?.message).toContain(
+      "The working tree changed after the confirmation:\n  - edited.txt",
+    )
+    expect(fixture.git("rev-parse", "HEAD")).toBe(head)
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
+  it("does not commit when the remote branch moves after the confirmation", async () => {
+    const fixture = createFixture()
+    const head = fixture.git("rev-parse", "HEAD")
+    const result = await fixture.run(
+      {},
+      {
+        waitForUser: () => {
+          const commit = fixture.remoteGit(
+            "commit-tree",
+            "main^{tree}",
+            "-p",
+            "main",
+            "-m",
+            "Other",
+          )
+          fixture.remoteGit("update-ref", "refs/heads/main", commit)
+          return true
+        },
+      },
+    )
+    expect(result.error?.message).toBe("main is behind origin/main. Pull the remote changes first.")
+    expect(fixture.git("rev-parse", "HEAD")).toBe(head)
+    expect(fixture.git("status", "--porcelain", "--untracked-files=all")).toBe("")
+    expect(fixture.state().npm.publishes).toEqual([])
   })
 })
 

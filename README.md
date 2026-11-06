@@ -72,7 +72,7 @@ npx changesets-local
 
 When npm or the GitHub CLI is not logged in, changesets-local runs `npm login` or `gh auth login` first; complete the login in the terminal.
 
-changesets-local versions the packages, runs [`release:check`](#check-the-release-before-publishing), [waits for CI](#wait-for-ci), and shows the release before asking for confirmation:
+changesets-local versions the packages and shows the release before asking for confirmation:
 
 ```text
 Release my-package@1.5.0
@@ -95,6 +95,8 @@ Changes:
    4 files changed, 11 insertions(+), 11 deletions(-)
 
 Steps:
+  - Run release:check
+  - Check CI on 3f1c2ab
   - Commit "Release my-package@1.5.0"
   - Push it to origin/main
   - Publish to npm as alice: my-package@1.5.0 (latest)
@@ -114,11 +116,18 @@ Dependency ranges:
 
 A package without the Git tag of its previous version shows only the changes that Changesets makes.
 
-After you confirm, it runs the steps in this order.
+After you confirm, it runs the steps in this order, so you can step away while [`release:check`](#check-the-release-before-publishing) runs and [CI finishes](#wait-for-ci).
+If they take at least 10 seconds, it rings the terminal bell and waits before publishing, so that you are back for npm authentication:
+
+```text
+Press Enter to publish my-package@1.5.0 as alice, Ctrl+C to cancel.
+```
+
 When npm asks for a one-time password or browser authentication, complete it in the terminal.
 changesets-local never asks for or stores passwords, one-time passwords, or tokens: npm and gh ask for them themselves.
 
 If you decline, or versioning or `release:check` fails, changesets-local restores the working tree and nothing is committed.
+Do not edit files while a release runs: the release also stops and restores the working tree when files or the remote branch change after the confirmation.
 Ctrl+C before the release commit does the same; after it, the release stops, and you [finish it](#finish-an-interrupted-release) with `--resume`.
 Press Ctrl+C again to exit at once without any cleanup.
 
@@ -183,7 +192,7 @@ Add a `release:check` script to the root `package.json` to run linting, type che
 }
 ```
 
-changesets-local runs it with your package manager after versioning the packages and before asking for confirmation, and again before publishing when it finishes an interrupted release.
+changesets-local runs it with your package manager after you confirm the release, and again before publishing when it finishes an interrupted release.
 The release stops if it fails.
 It must not change tracked files; add files it generates, such as `dist`, to `.gitignore`.
 
@@ -191,8 +200,7 @@ Build packages in their `prepack` or `prepublishOnly` scripts: npm runs them on 
 
 ## Wait for CI
 
-Before asking to confirm a new release, changesets-local waits for the GitHub checks of the commit you release, such as GitHub Actions jobs and commit statuses.
-It prepares the release while they run.
+After you confirm a new release, changesets-local waits for the GitHub checks of the commit you release, such as GitHub Actions jobs and commit statuses.
 It does not wait for checks awaiting approval, such as a deployment to a protected environment.
 
 If a check fails, changesets-local lists the failed checks with their links and asks whether to release anyway; the default answer is no.

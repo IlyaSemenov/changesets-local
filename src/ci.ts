@@ -1,4 +1,4 @@
-// CI checks of the released commit: waiting for them before the confirmation and asking before releasing a commit whose CI has failed.
+// CI checks of the released commit: waiting for them before publishing and asking before releasing a commit whose CI has failed.
 import { setTimeout as sleep } from "node:timers/promises"
 
 import {
@@ -19,7 +19,7 @@ const checkCreationPolls = 2
 /** Attempts to read CI checks before a failure other than missing access stops the release. */
 const maxReadAttempts = 3
 
-/** A commit whose CI must be checked again before the release confirmation. */
+/** A commit whose CI must be checked again before the release commit. */
 export interface PendingChecks {
   commit: string
   /** Time of the first read of the checks, in milliseconds since the epoch. */
@@ -57,6 +57,7 @@ export async function confirmFailedChecks(
 /**
  * Waits until the CI checks of a commit finish or one fails, and asks whether to release the commit when one fails.
  *
+ * Resolves to whether it asked, which means that the user has just answered in the terminal.
  * Does not wait for checks awaiting approval, such as a deployment to a protected environment.
  * When the commit has GitHub Actions workflows but no checks, reads them again once GitHub has had time to create them.
  */
@@ -96,12 +97,13 @@ export async function awaitChecks(ctx: Context, repo: string, pending: PendingCh
   }
   if (hasFailures(checks)) {
     await confirmRelease(ctx, commit, checks)
-    return
+    return true
   }
   warnAboutApprovals(ctx, commit, checks)
   if (checks.some(check => check.state === "success")) {
     logDone(ctx, `CI passed on ${short}`)
   }
+  return false
 }
 
 /** Shows the CI state of a commit in a dry run, warning about failed or running checks. */
@@ -119,7 +121,7 @@ export async function previewChecks(ctx: Context, repo: string, commit: string) 
   if (isRunning(checks)) {
     logWarning(
       ctx,
-      `CI is running on ${short}: ${formatCheckNames(checks, "pending")}. A release waits for it before the confirmation.`,
+      `CI is running on ${short}: ${formatCheckNames(checks, "pending")}. A release waits for it before publishing.`,
     )
   } else if (checks.some(check => check.state === "success")) {
     logDone(ctx, `CI passed on ${short}`)

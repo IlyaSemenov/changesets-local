@@ -56,6 +56,8 @@ export interface RunResult {
   output: string
   /** Confirmation questions asked. */
   questions: string[]
+  /** Messages of waits for the user before publishing. */
+  waits: string[]
   error?: Error
 }
 
@@ -67,12 +69,19 @@ export interface Fixture {
   remote: string
   env: NodeJS.ProcessEnv
   /**
-   * Runs a release, answering confirmation questions with `confirm`.
+   * Runs a release, answering confirmation questions with `confirm`, either the same answer to all or by question.
    * With `abort`, aborts the context signal when asked for confirmation, as Ctrl+C does; with `abortOnLog`, when a printed line contains that text.
+   * Checks count as too quick to wait for the user, unless `waitForUser` is set: it then answers the wait, and `presenceTimeout` applies, by default none.
    */
   run: (
     options?: ReleaseOptions,
-    answers?: { confirm?: boolean; abort?: boolean; abortOnLog?: string },
+    answers?: {
+      confirm?: boolean | ((question: string) => boolean)
+      abort?: boolean
+      abortOnLog?: string
+      waitForUser?: () => boolean
+      presenceTimeout?: number
+    },
   ) => Promise<RunResult>
   /** Runs Git in the project and returns its trimmed output. */
   git: (...args: string[]) => string
@@ -294,6 +303,7 @@ export function createFixture(options: FixtureOptions = {}): Fixture {
     async run(releaseOptions = {}, answers = {}) {
       const lines: string[] = []
       const questions: string[] = []
+      const waits: string[] = []
       const controller = new AbortController()
       const ctx: Context = {
         cwd: dir,
@@ -301,6 +311,7 @@ export function createFixture(options: FixtureOptions = {}): Fixture {
         interactive: false,
         // Long enough that only an abort ends a wait that the test does not let finish.
         pollInterval: answers.abortOnLog ? 60_000 : 0,
+        presenceTimeout: answers.presenceTimeout ?? (answers.waitForUser ? 0 : Infinity),
         signal: controller.signal,
         // The CLI styles its output when the tests run in a terminal.
         log: line => {
@@ -316,14 +327,20 @@ export function createFixture(options: FixtureOptions = {}): Fixture {
             controller.abort()
             return false
           }
-          return answers.confirm ?? true
+          return typeof answers.confirm === "function"
+            ? answers.confirm(question)
+            : (answers.confirm ?? true)
+        },
+        waitForUser: async message => {
+          waits.push(message)
+          return answers.waitForUser?.() ?? true
         },
       }
       try {
         await release(ctx, releaseOptions)
-        return { output: lines.join("\n"), questions }
+        return { output: lines.join("\n"), questions, waits }
       } catch (error) {
-        return { output: lines.join("\n"), questions, error: error as Error }
+        return { output: lines.join("\n"), questions, waits, error: error as Error }
       }
     },
     git,

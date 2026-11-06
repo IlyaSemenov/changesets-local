@@ -64,6 +64,18 @@ describe("monorepo release", () => {
     },
   )
 
+  it("does not wait for the user when the release publishes nothing", async () => {
+    const fixture = createFixture({
+      monorepo: true,
+      changesetsConfig: { privatePackages: true },
+      changesets: { example: changeset("patch", "Fix the example.", [privatePackage.name]) },
+    })
+    const result = await fixture.run({}, { waitForUser: () => true })
+    expect(result.error).toBeUndefined()
+    expect(result.waits).toEqual([])
+    expect(fixture.state().npm.publishes).toEqual([])
+  })
+
   it("tags private packages when Changesets tags them", async () => {
     const fixture = createFixture({
       monorepo: true,

@@ -34,6 +34,8 @@ Do not catalog files or restate information evident from their names and locatio
 - Run `assertPublishable` right before every `changeset publish`, not only before the confirmation: Git hooks and `--resume` can change what is published.
 - Check npm publish permissions once per run: before the confirmation, or before the push in `--resume`.
 - Check CI of the released commit, HEAD before versioning, only in the main release, not in `--resume`.
+- Ask for the release confirmation before `release:check` and the wait for CI, and create the release commit after them, only if the tree and the remote branch have not changed since the confirmation.
+- Between checks that take at least `presenceTimeout` and a publication, wait for the user with `waitForUser`, so that a missed npm 2FA does not fail a release whose commit is already pushed.
 - Before the release commit, restore the working tree on any failure, unless the user forces an immediate exit with a second Ctrl+C; after a release commit that matches the confirmed release, point the user to `--resume`. A release commit that does not match must be undone, not resumed.
 - Never treat missing evidence of a publication as proof that nothing was published; abandoning an incomplete release requires the user's confirmation.
 - Let a new release skip an incomplete one only when its release commit is pushed, its public versions are on npm, and HEAD has a higher version of each of its packages.
