@@ -1,7 +1,7 @@
 {
   "name": "changesets-local",
   "version": "1.6.0",
-  "description": "Release Changesets packages from your terminal: version, publish to npm, tag, and create GitHub Releases with one command",
+  "description": "Release Changesets packages and monorepos from your terminal, without a Version pull request or CI publishing.",
   "keywords": [
     "changelog",
     "changesets",
