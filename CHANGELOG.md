@@ -1,5 +1,11 @@
 # changesets-local
 
+## 1.6.0
+
+### Minor Changes
+
+- 72f1939: Show the release and ask for confirmation before running `release:check` and waiting for CI, and ask to press Enter before publishing when these checks took at least 10 seconds.
+
 ## 1.5.1
 
 ### Patch Changes
