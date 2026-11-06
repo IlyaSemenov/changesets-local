@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import type { Context } from "./context"
 import { listChangedPaths, listCommitPaths, readFileAtRevision } from "./git"
 import type { ReleaseConventions } from "./project"
+import { compareCodePoints } from "./strings"
 
 /** Fields of a package `package.json` that releases depend on. */
 export interface Manifest {
@@ -75,11 +76,6 @@ export function getReleaseTag(
   return conventions.monorepo ? `${release.name}@${release.version}` : `v${release.version}`
 }
 
-/** Checks whether a version is a prerelease, such as `1.0.0-beta.0`. */
-export function isPrerelease(version: string) {
-  return version.includes("-")
-}
-
 /** Start of every release commit subject. */
 export const releaseSubjectPrefix = "Release "
 
@@ -124,10 +120,6 @@ export function sortByName<T extends { name: string }>(items: T[]) {
       compareCodePoints(a.name.replace(/^@/, ""), b.name.replace(/^@/, "")) ||
       compareCodePoints(a.name, b.name),
   )
-}
-
-function compareCodePoints(a: string, b: string) {
-  return a < b ? -1 : a > b ? 1 : 0
 }
 
 /** Parses a `package.json`, or returns null when it is not a package manifest with a name and a version. */

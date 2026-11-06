@@ -6,19 +6,14 @@ import {
   listTrackedManifestPaths,
   readFileAtRevision,
 } from "./git"
-import {
-  getReleaseTag,
-  isManifestPath,
-  isPrerelease,
-  type PackageRelease,
-  parseManifest,
-} from "./packages"
+import { getReleaseTag, isManifestPath, type PackageRelease, parseManifest } from "./packages"
 import {
   getWorkTreeFiles,
   readReleaseConventions,
   type ReleaseConventions,
   type RepoFileReader,
 } from "./project"
+import { isPrerelease } from "./semver"
 
 /** GitHub repository as `OWNER/REPO` and the Git remote that holds its tags. */
 export interface MainPackageRepo {

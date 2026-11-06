@@ -47,6 +47,7 @@ import {
   isAncestor,
   listChangedPaths,
   listCommitsBySubjectPrefix,
+  listCommitTreePaths,
   listTrackedManifestPaths,
   listTreeDifferences,
   pushCommit,
@@ -73,9 +74,10 @@ import {
 import {
   formatReleaseSubject,
   getManifestDir,
-  isPrerelease,
+  isManifestPath,
   listCommitVersionChanges,
   listWorkTreeVersionChanges,
+  type Manifest,
   type PackageRelease,
   parseManifest,
   parseReleaseSubject,
@@ -92,6 +94,7 @@ import {
   readReleaseConventions,
   type ReleaseConventions,
 } from "./project"
+import { compareVersions, isPrerelease } from "./semver"
 
 /** Options of a release run. */
 export interface ReleaseOptions {
@@ -253,7 +256,7 @@ async function startRelease(ctx: Context, workspace: Workspace, options: Release
   const found = await findRelease(ctx)
   if (found) {
     const previous = await inspectRelease(ctx, workspace, found)
-    if (getPendingSteps(previous).length > 0) {
+    if (getPendingSteps(previous).length > 0 && !(await isSuperseded(ctx, workspace, previous))) {
       await confirmAbandonment(ctx, previous, options)
     }
   }
@@ -374,6 +377,42 @@ async function isApparentlyAbandoned(ctx: Context, state: ReleaseState) {
     }
   }
   return true
+}
+
+/** Checks whether a pushed and published release only lacks tags or GitHub Releases of versions that HEAD has moved past, as after manual version bumps. */
+async function isSuperseded(ctx: Context, workspace: Workspace, state: ReleaseState) {
+  if (!state.pushed || state.packages.some(entry => !entry.published)) {
+    return false
+  }
+  // Nested manifests of a single-package repository, such as test fixtures, are not released packages.
+  const paths = workspace.project.monorepo
+    ? (await listCommitTreePaths(ctx, "HEAD")).filter(isManifestPath)
+    : ["package.json"]
+  const manifests = new Map<string, Manifest>()
+  for (const path of paths) {
+    const manifest = parseManifest(await readFileAtRevision(ctx, "HEAD", path))
+    if (manifest) {
+      manifests.set(getManifestDir(path), manifest)
+    }
+  }
+  return state.packages.every(entry => {
+    const manifest = findCurrentManifest(manifests, entry)
+    return manifest !== undefined && compareVersions(manifest.version, entry.version) > 0
+  })
+}
+
+/**
+ * Finds the manifest of a package by its directory at the release, or by its name after the package has moved.
+ *
+ * Returns undefined when the package has left its directory and several manifests have its name, such as test fixtures, because the current package is then unknown.
+ */
+function findCurrentManifest(manifests: Map<string, Manifest>, entry: PackageRelease) {
+  const manifest = manifests.get(entry.dir)
+  if (manifest?.name === entry.name) {
+    return manifest
+  }
+  const matches = [...manifests.values()].filter(({ name }) => name === entry.name)
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 /** Fails when a versioned package already has its tag, or a public one its version on npm. */

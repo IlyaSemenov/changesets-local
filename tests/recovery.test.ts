@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 
 import {
+  changeset,
   createFixture,
   createJsonEditCommand,
   expectReleased,
@@ -222,6 +223,124 @@ describe("failure after the release commit", () => {
     )
     expect(result.error?.message).toContain("Run `changesets-local --resume` to finish it.")
     expect(result.questions).toEqual([])
+  })
+})
+
+describe("superseded release", () => {
+  /** Commits a manual version bump and a pending changeset. */
+  function commitVersionBump(fixture: Fixture, version: string) {
+    fixture.write(
+      "package.json",
+      JSON.stringify({ ...JSON.parse(fixture.read("package.json")), version }),
+    )
+    fixture.write(".changeset/next.md", changeset("patch", "Fix another bug."))
+    fixture.git("add", "--all")
+    fixture.git("commit", "--quiet", "--message", `Version ${version}`)
+    fixture.git("push", "--quiet")
+  }
+
+  it("does not block a new release when HEAD has a higher version", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    commitVersionBump(fixture, "1.0.5")
+
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual([`Release ${packageName}@1.0.6?`])
+    expectReleased(fixture, "1.0.6")
+  })
+
+  it("ignores a lower version of a nested manifest with the same name", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    fixture.write(
+      "tests/fixture/package.json",
+      JSON.stringify({ name: packageName, version: "1.0.0" }),
+    )
+    commitVersionBump(fixture, "1.0.5")
+
+    const result = await fixture.run()
+    expect(result.error).toBeUndefined()
+    expectReleased(fixture, "1.0.6")
+  })
+
+  it("blocks a new release when only a nested manifest with the same name has a higher version", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    fixture.write(
+      "tests/fixture/package.json",
+      JSON.stringify({ name: packageName, version: "9.0.0" }),
+    )
+    fixture.git("add", "--all")
+    fixture.git("commit", "--quiet", "--message", "Add a test fixture")
+    fixture.git("push", "--quiet")
+
+    const result = await fixture.run()
+    expect(result.error?.message).toContain(
+      'The release "Release fixture-package@1.0.1" is incomplete:',
+    )
+    expect(result.questions).toEqual([])
+  })
+
+  it("blocks a new release when a nested manifest keeps the name of a renamed package", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    fixture.write(
+      "tests/fixture/package.json",
+      JSON.stringify({ name: packageName, version: "9.0.0" }),
+    )
+    fixture.write(
+      "package.json",
+      JSON.stringify({ ...JSON.parse(fixture.read("package.json")), name: "replacement" }),
+    )
+    fixture.git("add", "--all")
+    fixture.git("commit", "--quiet", "--message", "Rename the package")
+    fixture.git("push", "--quiet")
+
+    const result = await fixture.run()
+    expect(result.error?.message).toContain(
+      'The release "Release fixture-package@1.0.1" is incomplete:',
+    )
+    expect(result.questions).toEqual([])
+  })
+
+  it("can still be resumed", async () => {
+    const fixture = createFixture()
+    fixture.rejectPushes("refs/tags/*")
+    await runInterrupted(fixture, "rejected")
+    fixture.rejectPushes(null)
+    commitVersionBump(fixture, "1.0.5")
+
+    const result = await fixture.run({ resume: true })
+    expect(result.error).toBeUndefined()
+    expect(result.questions).toEqual(['Finish the release "Release fixture-package@1.0.1"?'])
+    expect(fixture.remoteGit("rev-parse", "v1.0.1^{commit}")).toBe(
+      fixture.git("rev-parse", "HEAD~1"),
+    )
+  })
+
+  it("asks to abandon a release whose version is not on npm", async () => {
+    const fixture = createFixture()
+    fixture.updateState(state => {
+      state.npm.publishFailures[packageName] = "before-upload"
+    })
+    await runInterrupted(fixture, "`changeset publish` failed.")
+    fixture.updateState(state => {
+      state.npm.publishFailures = {}
+    })
+    commitVersionBump(fixture, "1.0.5")
+
+    const result = await fixture.run({}, { confirm: false })
+    expect(result.error?.message).toBe("Release cancelled.")
+    expect(result.questions).toEqual(['Abandon the release "Release fixture-package@1.0.1"?'])
   })
 })
 

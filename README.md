@@ -218,8 +218,8 @@ When the state is inconsistent, for example when a remote tag points to a differ
 A newly published version can be missing from the npm registry for several minutes while npm scans it.
 If a release stops because npm does not show a version it has accepted, wait a few minutes and resume.
 
-If you start a new release while the previous one is incomplete, changesets-local asks you to resume it first.
-If nothing of the incomplete release is on npm or tagged and you have reverted its release commit, it asks whether to abandon that release instead.
+If a new release stops because the previous one is incomplete, resume that release first.
+If nothing of the incomplete release is on npm or tagged and you have reverted its release commit, changesets-local asks whether to abandon that release instead.
 Abandon it only if you are sure that npm did not accept any of its versions.
 
 ## Why changesets-local

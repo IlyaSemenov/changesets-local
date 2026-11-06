@@ -660,6 +660,81 @@ describe("monorepo recovery", () => {
     ])
   })
 
+  describe("superseded release", () => {
+    /** Creates a monorepo fixture whose release was published without pushing its tags. */
+    async function createPublishedRelease() {
+      const fixture = createFixture({ monorepo: true })
+      fixture.rejectPushes("refs/tags/*")
+      expect((await fixture.run()).error?.message).toContain("rejected")
+      fixture.rejectPushes(null)
+      return fixture
+    }
+
+    it("does not block a new release when HEAD has a higher version of a moved package", async () => {
+      const fixture = await createPublishedRelease()
+      fixture.git("mv", "packages/alpha", "packages/moved")
+      commitManifest(fixture, "packages/moved", { version: "1.2.0" })
+      fixture.write(
+        ".changeset/next.md",
+        changeset("patch", "Fix another bug.", ["alpha", "@fixture/beta"]),
+      )
+      fixture.git("add", "--all")
+      commitManifest(fixture, "packages/beta", { version: "1.0.2" })
+
+      const result = await fixture.run()
+      expect(result.error).toBeUndefined()
+      expect(result.questions).toEqual(["Release alpha@1.2.1, @fixture/beta@1.0.3?"])
+      expectPackageReleased(fixture, "packages/moved", "1.2.1")
+      expectPackageReleased(fixture, "packages/beta", "1.0.3")
+    })
+
+    it("does not block a new release after a package is extracted to a single-package repository", async () => {
+      const fixture = createFixture({
+        monorepo: true,
+        changesets: { "only-alpha": changeset("minor", "Add a feature.", ["alpha"]) },
+      })
+      fixture.rejectPushes("refs/tags/*")
+      expect((await fixture.run()).error?.message).toContain("rejected")
+      fixture.rejectPushes(null)
+      const { workspaces: _, private: __, ...root } = JSON.parse(fixture.read("package.json"))
+      fixture.git("rm", "--quiet", "-r", "packages")
+      fixture.write("package.json", JSON.stringify({ ...root, name: "alpha", version: "1.2.0" }))
+      fixture.write(".changeset/next.md", changeset("patch", "Fix another bug.", ["alpha"]))
+      fixture.git("add", "--all")
+      fixture.git("commit", "--quiet", "--message", "Extract alpha")
+      fixture.git("push", "--quiet")
+
+      const result = await fixture.run({ dryRun: true })
+      expect(result.error).toBeUndefined()
+      expect(result.output).toContain("Release alpha@1.2.1")
+    })
+
+    it("blocks a new release when several manifests could be a moved package", async () => {
+      const fixture = await createPublishedRelease()
+      fixture.git("mv", "packages/alpha", "packages/moved")
+      fixture.write(
+        "fixtures/alpha/package.json",
+        JSON.stringify({ name: "alpha", version: "9.0.0" }),
+      )
+      fixture.git("add", "--all")
+      commitManifest(fixture, "packages/moved", { version: "1.2.0" })
+      commitManifest(fixture, "packages/beta", { version: "1.0.2" })
+
+      const result = await fixture.run()
+      expect(result.error?.message).toContain("is incomplete")
+      expect(result.questions).toEqual([])
+    })
+
+    it("blocks a new release while HEAD has the released version of a package", async () => {
+      const fixture = await createPublishedRelease()
+      commitManifest(fixture, "packages/alpha", { version: "1.2.0" })
+
+      const result = await fixture.run()
+      expect(result.error?.message).toContain("is incomplete")
+      expect(result.questions).toEqual([])
+    })
+  })
+
   it("resumes a release commit that lists its packages in another order", async () => {
     const fixture = createFixture({ monorepo: true })
     fixture.rejectPushes("refs/heads/*")

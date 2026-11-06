@@ -36,6 +36,7 @@ Do not catalog files or restate information evident from their names and locatio
 - Check CI of the released commit, HEAD before versioning, only in the main release, not in `--resume`.
 - Before the release commit, restore the working tree on any failure, unless the user forces an immediate exit with a second Ctrl+C; after a release commit that matches the confirmed release, point the user to `--resume`. A release commit that does not match must be undone, not resumed.
 - Never treat missing evidence of a publication as proof that nothing was published; abandoning an incomplete release requires the user's confirmation.
+- Let a new release skip an incomplete one only when its release commit is pushed, its public versions are on npm, and HEAD has a higher version of each of its packages.
 - Run subprocesses that ask for input or take long, such as `changeset publish` and `release:check`, through `runCommand`, which shares the terminal in the CLI.
 
 ## Gotchas
