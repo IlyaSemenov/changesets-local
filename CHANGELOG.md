@@ -1,5 +1,11 @@
 # changesets-local
 
+## 1.5.1
+
+### Patch Changes
+
+- 610f1a8: Fix new releases being blocked by an older published release with missing tags when all its packages have higher current versions.
+
 ## 1.5.0
 
 ### Minor Changes
